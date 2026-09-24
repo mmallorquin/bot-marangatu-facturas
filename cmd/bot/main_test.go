@@ -20,6 +20,13 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// setValidEnv deja las variables obligatorias configuradas.
+func setValidEnv(t *testing.T, token string) {
+	t.Helper()
+	t.Setenv(config.TokenEnvVar, token)
+	t.Setenv(config.OpenRouterKeyVar, "sk-or-test")
+}
+
 func TestRunFailsWithClearErrorWhenTokenIsMissing(t *testing.T) {
 	// Arrange
 	t.Setenv(config.TokenEnvVar, "")
@@ -36,7 +43,7 @@ func TestRunFailsWithClearErrorWhenTokenIsMissing(t *testing.T) {
 func TestRunHidesTokenWhenTelegramRejectsIt(t *testing.T) {
 	// Arrange: Telegram responde que el token no es válido
 	const token = "123456:ABC-invalido"
-	t.Setenv(config.TokenEnvVar, token)
+	setValidEnv(t, token)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
@@ -57,7 +64,7 @@ func TestRunHidesTokenWhenTelegramRejectsIt(t *testing.T) {
 
 func TestRunStopsCleanlyWhenContextIsCancelled(t *testing.T) {
 	// Arrange
-	t.Setenv(config.TokenEnvVar, "123456:ABC-token")
+	setValidEnv(t, "123456:ABC-token")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
 	}))

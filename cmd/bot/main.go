@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/config"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/openrouter"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/telegram"
 )
 
@@ -42,9 +43,15 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		return err
 	}
 
+	invoiceReader := openrouter.New(openrouter.Options{
+		APIKey: cfg.OpenRouterAPIKey,
+		Model:  cfg.OpenRouterModel,
+		ZDR:    cfg.OpenRouterZDR,
+	})
+
 	token := cfg.TelegramBotToken
 	opts := append([]bot.Option{
-		bot.WithDefaultHandler(telegram.NewHandler(logger, token)),
+		bot.WithDefaultHandler(telegram.NewHandler(logger, token, invoiceReader)),
 		bot.WithErrorsHandler(telegram.NewErrorsHandler(logger, token)),
 	}, extraOpts...)
 
@@ -53,7 +60,8 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		return errors.New(telegram.Redact(err, token))
 	}
 
-	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)")
+	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
+		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR)
 	b.Start(ctx)
 	logger.Info("bot detenido")
 	return nil

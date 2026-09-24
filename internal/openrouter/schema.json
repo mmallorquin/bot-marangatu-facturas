@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "es_comprobante", "tipo", "ruc_emisor", "razon_social_emisor", "timbrado", "numero",
+    "fecha", "condicion", "moneda", "exentas", "gravada_5", "gravada_10", "iva_5", "iva_10",
+    "total", "cdc", "campos_dudosos"
+  ],
+  "properties": {
+    "es_comprobante": { "type": "boolean", "description": "true si la imagen es un comprobante fiscal paraguayo" },
+    "tipo": { "type": "string", "enum": ["factura", "nota_credito", "nota_debito", "autofactura", "ticket", "otro"] },
+    "ruc_emisor": { "type": "string", "description": "RUC del emisor con dígito verificador, ej. 80012345-6" },
+    "razon_social_emisor": { "type": "string" },
+    "timbrado": { "type": "string", "description": "8 dígitos" },
+    "numero": { "type": "string", "description": "Formato 001-001-0001234" },
+    "fecha": { "type": "string", "description": "Fecha de emisión AAAA-MM-DD" },
+    "condicion": { "type": "string", "enum": ["contado", "credito"] },
+    "moneda": { "type": "string", "description": "Código ISO, PYG para guaraníes" },
+    "exentas": { "type": "integer", "description": "Total columna exentas, en guaraníes" },
+    "gravada_5": { "type": "integer", "description": "Total columna 5 %, IVA incluido" },
+    "gravada_10": { "type": "integer", "description": "Total columna 10 %, IVA incluido" },
+    "iva_5": { "type": "integer", "description": "Liquidación IVA 5 %" },
+    "iva_10": { "type": "integer", "description": "Liquidación IVA 10 %" },
+    "total": { "type": "integer", "description": "Total a pagar" },
+    "cdc": { "type": "string", "description": "CDC de 44 dígitos si es factura electrónica, si no vacío" },
+    "campos_dudosos": { "type": "array", "items": { "type": "string" }, "description": "Campos que no se leen con claridad" }
+  }
+}

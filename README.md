@@ -28,7 +28,7 @@ manejar tus credenciales.
 ## Hoja de ruta
 
 - [x] **Etapa 1 — Arranque:** estructura del proyecto y bot de Telegram que recibe fotos
-- [ ] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA
+- [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
 - [ ] **Etapa 3 — Confirmación:** mostrar los datos y permitir corregirlos desde el chat
 - [ ] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
 - [ ] **Etapa 5 — Beta:** probarlo con usuarios reales
@@ -39,28 +39,45 @@ manejar tus credenciales.
 
 - **[Go](https://go.dev)**: el proyecto también es mi excusa para aprender Go viniendo de Python.
 - **[go-telegram/bot](https://github.com/go-telegram/bot)** para el bot de Telegram.
+- **[OpenRouter](https://openrouter.ai)** para leer la factura con cualquier modelo con visión.
+  Por defecto `deepseek/deepseek-v4.1-flash` (estimado: menos de USD 0,001 por factura); se cambia con `OPENROUTER_MODEL`.
 
 ```
-cmd/bot/            → punto de entrada: arma el bot y lo pone a escuchar
-internal/config/    → lee y valida la configuración (.env)
-internal/telegram/  → qué responde el bot y cómo lo envía
+cmd/bot/              → punto de entrada: arma el bot y lo pone a escuchar
+internal/config/      → lee y valida la configuración (.env)
+internal/telegram/    → recibe la foto, la descarga y responde
+internal/reader/      → contrato para leer facturas (independiente del proveedor de IA)
+internal/openrouter/  → implementación con OpenRouter: prompt, esquema JSON y cliente HTTP
+internal/invoice/     → la factura y sus validaciones: RUC (módulo 11), IVA, totales, formatos
 ```
+
+### Cómo se valida una factura
+
+La IA lee la foto, pero los números los verifica el código:
+
+- **RUC**: dígito verificador con el algoritmo oficial de la DNIT (módulo 11).
+- **IVA**: IVA 10 % = gravada ÷ 11 e IVA 5 % = gravada ÷ 21, con tolerancia por redondeo.
+- **Total**: exentas + gravadas = total.
+- **Formatos**: timbrado de 8 dígitos, número `001-001-0000001`, fecha válida, CDC de 44 dígitos.
+
+Si algo no cierra, el bot te avisa qué revisar.
 
 ## Cómo correrlo
 
 Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 
 1. Creá tu bot hablándole a [@BotFather](https://t.me/BotFather) → `/newbot`, y copiá el token.
-2. Configurá el token:
+2. Creá una key en [openrouter.ai/keys](https://openrouter.ai/keys), con un límite de crédito.
+3. Configurá las dos:
    ```bash
    cp .env.example .env
-   # editá .env y pegá el token en TELEGRAM_BOT_TOKEN
+   # editá .env: TELEGRAM_BOT_TOKEN y OPENROUTER_API_KEY
    ```
-3. Arrancá el bot:
+4. Arrancá el bot:
    ```bash
    go run ./cmd/bot
    ```
-4. Abrí tu bot en Telegram, mandá `/start` y después una foto.
+5. Abrí tu bot en Telegram, mandá `/start` y después una foto de una factura.
 
 ## Tests
 
@@ -72,6 +89,9 @@ go test -race -cover ./...
 
 - Nunca subas tu `.env`, tokens ni fotos de facturas reales al repositorio (ya están en `.gitignore`).
 - Para capturas y demos, usá facturas de prueba o tapá RUC, nombres y montos.
+- Las fotos no se guardan: se descargan en memoria, se envían al modelo y se descartan.
+- Cada pedido a OpenRouter va con `data_collection: "deny"` y, por defecto, `zdr: true`:
+  solo se usan proveedores que no guardan ni entrenan con tus facturas.
 
 ## Licencia
 
