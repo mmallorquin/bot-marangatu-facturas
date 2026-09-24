@@ -1,0 +1,28 @@
+# Secretos: nunca subir tokens ni credenciales
+.env
+.env.*
+!.env.example
+
+# Facturas y datos reales (contienen RUC, nombres y montos)
+facturas/
+data/
+exports/
+*.xlsx
+*.csv
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.pdf
+
+# Go
+/bin/
+/bot
+*.test
+*.out
+coverage.*
+
+# Sistema / editores
+.DS_Store
+.vscode/
+.idea/
