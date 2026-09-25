@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
-	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 )
 
 // Con esta cantidad de problemas conviene sacar otra foto en vez de corregir a mano.
@@ -28,25 +27,24 @@ var conditionLabels = map[string]string{
 }
 
 var fieldLabels = map[string]string{
-	invoice.FieldIssuerRUC: "RUC",
-	"razon_social_emisor":  "razón social",
-	invoice.FieldTimbrado:  "timbrado",
-	invoice.FieldNumber:    "número",
-	invoice.FieldDate:      "fecha",
-	invoice.FieldCondition: "condición",
-	invoice.FieldCurrency:  "moneda",
-	invoice.FieldExempt:    "exentas",
-	invoice.FieldTaxed5:    "gravada 5 %",
-	invoice.FieldTaxed10:   "gravada 10 %",
-	invoice.FieldVAT5:      "IVA 5 %",
-	invoice.FieldVAT10:     "IVA 10 %",
-	invoice.FieldTotal:     "total",
-	invoice.FieldCDC:       "CDC",
+	invoice.FieldIssuerRUC:  "RUC",
+	invoice.FieldIssuerName: "razón social",
+	invoice.FieldTimbrado:   "timbrado",
+	invoice.FieldNumber:     "número",
+	invoice.FieldDate:       "fecha",
+	invoice.FieldCondition:  "condición",
+	invoice.FieldCurrency:   "moneda",
+	invoice.FieldExempt:     "exentas",
+	invoice.FieldTaxed5:     "gravada 5 %",
+	invoice.FieldTaxed10:    "gravada 10 %",
+	invoice.FieldVAT5:       "IVA 5 %",
+	invoice.FieldVAT10:      "IVA 10 %",
+	invoice.FieldTotal:      "total",
+	invoice.FieldCDC:        "CDC",
 }
 
 // FormatInvoice arma el mensaje que el bot le muestra al usuario.
-func FormatInvoice(res reader.Result, issues []invoice.Issue) string {
-	inv := res.Invoice
+func FormatInvoice(inv invoice.Invoice, issues []invoice.Issue) string {
 	if !inv.IsInvoice {
 		return NotInvoiceMessage
 	}
@@ -94,7 +92,7 @@ func formatReview(uncertain []string, issues []invoice.Issue) string {
 	if len(uncertain) > 0 {
 		labels := make([]string, 0, len(uncertain))
 		for _, field := range uncertain {
-			labels = append(labels, labelOr(fieldLabels, field, field))
+			labels = append(labels, fieldLabel(field))
 		}
 		fmt.Fprintf(&b, "• No se lee bien: %s\n", strings.Join(labels, ", "))
 	}
@@ -111,6 +109,11 @@ func displayDate(date string) string {
 		return date
 	}
 	return parsed.Format("02/01/2006")
+}
+
+// fieldLabel es el nombre legible de un campo ("iva_10" → "IVA 10 %").
+func fieldLabel(field string) string {
+	return labelOr(fieldLabels, field, field)
 }
 
 func labelOr(labels map[string]string, key, fallback string) string {

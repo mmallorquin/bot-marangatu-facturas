@@ -29,7 +29,7 @@ manejar tus credenciales.
 
 - [x] **Etapa 1 — Arranque:** estructura del proyecto y bot de Telegram que recibe fotos
 - [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
-- [ ] **Etapa 3 — Confirmación:** mostrar los datos y permitir corregirlos desde el chat
+- [x] **Etapa 3 — Confirmación:** guardar, corregir o descartar cada factura desde el chat
 - [ ] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
 - [ ] **Etapa 5 — Beta:** probarlo con usuarios reales
 - [ ] **Etapa 6 — WhatsApp:** sumar WhatsApp como segundo canal
@@ -50,7 +50,8 @@ internal/config/      → lee y valida la configuración (.env)
 internal/telegram/    → recibe la foto, la descarga y responde
 internal/reader/      → contrato para leer facturas (independiente del proveedor de IA)
 internal/openrouter/  → implementación con OpenRouter: prompt, esquema JSON y cliente HTTP
-internal/invoice/     → la factura y sus validaciones: RUC (módulo 11), IVA, totales, formatos
+internal/invoice/     → la factura, sus validaciones (RUC módulo 11, IVA, totales) y las correcciones
+internal/store/       → base SQLite local: borradores, facturas guardadas, duplicados y resumen mensual
 internal/benchmark/   → lógica de la comparación de modelos
 ```
 
@@ -81,6 +82,28 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
    go run ./cmd/bot
    ```
 5. Abrí tu bot en Telegram, mandá `/start` y después una foto de una factura.
+
+## Cómo se usa
+
+1. Mandás la foto de la factura.
+2. El bot la lee y te la muestra con tres botones:
+
+   ```
+   [✅ Guardar]  [✏️ Corregir]  [🗑️ Descartar]
+   ```
+
+3. **✏️ Corregir**: elegís el campo, escribís el valor correcto (`150.000`, `20/09/2026`, `1-1-1234`…)
+   y el bot vuelve a validar.
+4. **✅ Guardar**: solo se puede si todos los datos cierran. Si ya habías guardado la misma factura, te avisa.
+
+| Comando | Qué hace |
+|---|---|
+| `/resumen` | Facturas guardadas este mes, con IVA y total |
+| `/resumen 08/2026` | Lo mismo para otro mes |
+| `/cancelar` | Cancela una corrección a medias |
+
+Las facturas se guardan en `data/facturas.db` (SQLite, en `.gitignore`), separadas por chat.
+También se guarda lo que leyó la IA antes de tus correcciones, para medir qué tan bien lee cada modelo.
 
 ## Comparar modelos
 

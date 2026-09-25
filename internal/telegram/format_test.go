@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
-	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 )
 
 func sampleInvoice() invoice.Invoice {
@@ -27,7 +26,7 @@ func sampleInvoice() invoice.Invoice {
 
 func TestFormatInvoiceShowsDataInParaguayanFormat(t *testing.T) {
 	// Act
-	text := FormatInvoice(reader.Result{Invoice: sampleInvoice()}, nil)
+	text := FormatInvoice(sampleInvoice(), nil)
 
 	// Assert
 	for _, want := range []string{
@@ -50,7 +49,7 @@ func TestFormatInvoiceListsIssuesAndUncertainFields(t *testing.T) {
 	issues := []invoice.Issue{{Field: invoice.FieldTotal, Message: "el total no suma"}}
 
 	// Act
-	text := FormatInvoice(reader.Result{Invoice: inv}, issues)
+	text := FormatInvoice(inv, issues)
 
 	// Assert
 	for _, want := range []string{"⚠️", "el total no suma", "timbrado"} {
@@ -64,7 +63,7 @@ func TestFormatInvoiceListsIssuesAndUncertainFields(t *testing.T) {
 }
 
 func TestFormatInvoiceWhenImageIsNotAnInvoice(t *testing.T) {
-	text := FormatInvoice(reader.Result{Invoice: invoice.Invoice{IsInvoice: false}}, nil)
+	text := FormatInvoice(invoice.Invoice{IsInvoice: false}, nil)
 
 	if text != NotInvoiceMessage {
 		t.Errorf("FormatInvoice() = %q, se esperaba NotInvoiceMessage", text)
@@ -88,7 +87,7 @@ func TestFormatInvoiceSuggestsRetakingWhenThereAreManyProblems(t *testing.T) {
 	issues := []invoice.Issue{{Field: invoice.FieldTotal, Message: "a"}, {Field: invoice.FieldVAT10, Message: "b"}}
 
 	// Act
-	text := FormatInvoice(reader.Result{Invoice: inv}, issues)
+	text := FormatInvoice(inv, issues)
 
 	// Assert
 	if !strings.Contains(text, RetakeTip) {
@@ -99,7 +98,7 @@ func TestFormatInvoiceSuggestsRetakingWhenThereAreManyProblems(t *testing.T) {
 func TestFormatInvoiceDoesNotSuggestRetakingForFewProblems(t *testing.T) {
 	issues := []invoice.Issue{{Field: invoice.FieldTotal, Message: "a"}}
 
-	text := FormatInvoice(reader.Result{Invoice: sampleInvoice()}, issues)
+	text := FormatInvoice(sampleInvoice(), issues)
 
 	if strings.Contains(text, RetakeTip) {
 		t.Errorf("con un solo problema no hace falta otra foto:\n%s", text)
