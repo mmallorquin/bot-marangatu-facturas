@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,14 +29,17 @@ func fakeChatResponse(content, finishReason string) string {
 			"message":       map[string]string{"role": "assistant", "content": content},
 			"finish_reason": finishReason,
 		}},
-		"usage": map[string]any{"prompt_tokens": 1500, "completion_tokens": 200, "cost": 0.00042},
+		"usage": map[string]any{
+			"prompt_tokens": 1500, "completion_tokens": 200, "cost": 0.00042,
+			"completion_tokens_details": map[string]any{"reasoning_tokens": 120},
+		},
 	})
 	return string(body)
 }
 
 // newTestClient levanta un OpenRouter falso que responde con status y body.
 // Guarda el último request recibido en *captured.
-func newTestClient(t *testing.T, status int, body string, captured *capturedRequest) *Client {
+func newTestClient(t *testing.T, status int, body string, captured *capturedRequest, modify ...func(*Options)) *Client {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if captured != nil {
@@ -49,12 +53,16 @@ func newTestClient(t *testing.T, status int, body string, captured *capturedRequ
 	}))
 	t.Cleanup(server.Close)
 
-	return New(Options{
+	opts := Options{
 		APIKey:  "sk-or-test",
 		Model:   "deepseek/deepseek-v4.1-flash",
 		BaseURL: server.URL,
 		ZDR:     true,
-	})
+	}
+	for _, m := range modify {
+		m(&opts)
+	}
+	return New(opts)
 }
 
 type capturedRequest struct {
@@ -81,6 +89,47 @@ func TestReadParsesInvoiceAndCost(t *testing.T) {
 	}
 	if result.CostUSD != 0.00042 || result.Model != "deepseek/deepseek-v4.1-flash" {
 		t.Errorf("costo o modelo incorrectos: %+v", result)
+	}
+	want := reader.Usage{InputTokens: 1500, OutputTokens: 200, ReasoningTokens: 120}
+	if result.Usage != want {
+		t.Errorf("uso de tokens = %+v, se esperaba %+v", result.Usage, want)
+	}
+}
+
+func TestReadSendsReasoningEffortOnlyWhenConfigured(t *testing.T) {
+	cases := map[string]struct {
+		effort string
+		want   map[string]any // nil = no se envía "reasoning"
+	}{
+		"sin configurar": {"", nil},
+		"sin razonar":    {"none", map[string]any{"effort": "none", "exclude": true}},
+		"bajo":           {"low", map[string]any{"effort": "low", "exclude": true}},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			var captured capturedRequest
+			client := newTestClient(t, http.StatusOK, fakeChatResponse(invoiceJSON, "stop"), &captured,
+				func(o *Options) { o.ReasoningEffort = tc.effort })
+
+			// Act
+			if _, err := client.Read(context.Background(), testImage); err != nil {
+				t.Fatalf("error inesperado: %v", err)
+			}
+
+			// Assert
+			got, sent := captured.body["reasoning"]
+			if tc.want == nil {
+				if sent {
+					t.Errorf("no se esperaba \"reasoning\", se envió %v", got)
+				}
+				return
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("reasoning = %v, se esperaba %v", got, tc.want)
+			}
+		})
 	}
 }
 

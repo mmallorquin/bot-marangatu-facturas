@@ -58,6 +58,10 @@ type Options struct {
 	Model   string // ej. "deepseek/deepseek-v4.1-flash"
 	BaseURL string // vacío = DefaultBaseURL
 	ZDR     bool   // usar solo proveedores que no guardan datos
+
+	// ReasoningEffort limita el razonamiento del modelo (none, minimal, low, medium, high).
+	// Vacío = no se envía y cada modelo usa su valor por defecto.
+	ReasoningEffort string
 }
 
 // Client implementa reader.Reader con la API de OpenRouter.
@@ -110,6 +114,12 @@ func (c *Client) Read(ctx context.Context, img reader.Image) (reader.Result, err
 
 func (c *Client) buildRequest(img reader.Image) chatRequest {
 	dataURL := "data:" + img.MimeType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
+
+	var effort *reasoning
+	if c.opts.ReasoningEffort != "" {
+		effort = &reasoning{Effort: c.opts.ReasoningEffort, Exclude: true}
+	}
+
 	return chatRequest{
 		Model: c.opts.Model,
 		Messages: []message{
@@ -123,7 +133,8 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 			Type:       "json_schema",
 			JSONSchema: jsonSchema{Name: "comprobante", Strict: true, Schema: invoiceSchema},
 		},
-		Provider: providerPrefs{DataCollection: "deny", ZDR: c.opts.ZDR, RequireParameters: true},
+		Provider:  providerPrefs{DataCollection: "deny", ZDR: c.opts.ZDR, RequireParameters: true},
+		Reasoning: effort,
 	}
 }
 
@@ -158,7 +169,12 @@ func parseResult(body []byte) (reader.Result, error) {
 	if err := json.Unmarshal([]byte(stripCodeFence(choice.Message.Content)), &inv); err != nil {
 		return reader.Result{}, fmt.Errorf("el modelo no devolvió un JSON válido: %w", err)
 	}
-	return reader.Result{Invoice: inv, Model: resp.Model, CostUSD: resp.Usage.Cost}, nil
+	usage := reader.Usage{
+		InputTokens:     resp.Usage.PromptTokens,
+		OutputTokens:    resp.Usage.CompletionTokens,
+		ReasoningTokens: resp.Usage.CompletionTokensDetails.ReasoningTokens,
+	}
+	return reader.Result{Invoice: inv, Model: resp.Model, CostUSD: resp.Usage.Cost, Usage: usage}, nil
 }
 
 // stripCodeFence quita ```json ... ``` si el modelo envolvió la respuesta.

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,7 @@ func TestLoadReadsRequiredValuesAndDefaults(t *testing.T) {
 		OpenRouterAPIKey: "sk-or-test",
 		OpenRouterModel:  DefaultModel,
 		OpenRouterZDR:    true,
+		ReasoningEffort:  DefaultReasoningEffort,
 	}
 	if cfg != want {
 		t.Errorf("Load() = %+v, se esperaba %+v", cfg, want)
@@ -66,6 +68,19 @@ func TestLoadAllowsDisablingZDR(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsValidReasoningEfforts(t *testing.T) {
+	for _, effort := range []string{"none", "minimal", "low", "medium", "high", "LOW"} {
+		env := validEnv()
+		env[ReasoningVar] = effort
+
+		cfg, err := Load(envFrom(env))
+
+		if err != nil || cfg.ReasoningEffort != strings.ToLower(effort) {
+			t.Errorf("%s=%q: effort=%q err=%v", ReasoningVar, effort, cfg.ReasoningEffort, err)
+		}
+	}
+}
+
 func TestLoadFailsOnMissingOrInvalidValues(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -77,6 +92,7 @@ func TestLoadFailsOnMissingOrInvalidValues(t *testing.T) {
 		{"token con espacios", TokenEnvVar, "   ", ErrMissingToken},
 		{"key de OpenRouter ausente", OpenRouterKeyVar, "", ErrMissingOpenRouterKey},
 		{"ZDR inválido", OpenRouterZDRVar, "tal vez", ErrInvalidZDR},
+		{"razonamiento inválido", ReasoningVar, "muchísimo", ErrInvalidReasoning},
 	}
 
 	for _, tc := range cases {

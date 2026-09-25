@@ -80,3 +80,28 @@ func TestFormatGuaranies(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatInvoiceSuggestsRetakingWhenThereAreManyProblems(t *testing.T) {
+	// Arrange: 2 problemas de validación + 1 campo dudoso = 3
+	inv := sampleInvoice()
+	inv.UncertainFields = []string{invoice.FieldDate}
+	issues := []invoice.Issue{{Field: invoice.FieldTotal, Message: "a"}, {Field: invoice.FieldVAT10, Message: "b"}}
+
+	// Act
+	text := FormatInvoice(reader.Result{Invoice: inv}, issues)
+
+	// Assert
+	if !strings.Contains(text, RetakeTip) {
+		t.Errorf("se esperaba el consejo de sacar otra foto:\n%s", text)
+	}
+}
+
+func TestFormatInvoiceDoesNotSuggestRetakingForFewProblems(t *testing.T) {
+	issues := []invoice.Issue{{Field: invoice.FieldTotal, Message: "a"}}
+
+	text := FormatInvoice(reader.Result{Invoice: sampleInvoice()}, issues)
+
+	if strings.Contains(text, RetakeTip) {
+		t.Errorf("con un solo problema no hace falta otra foto:\n%s", text)
+	}
+}

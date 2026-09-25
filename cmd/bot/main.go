@@ -47,6 +47,8 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		APIKey: cfg.OpenRouterAPIKey,
 		Model:  cfg.OpenRouterModel,
 		ZDR:    cfg.OpenRouterZDR,
+
+		ReasoningEffort: cfg.ReasoningEffort,
 	})
 
 	token := cfg.TelegramBotToken
@@ -61,7 +63,7 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	}
 
 	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
-		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR)
+		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort)
 	b.Start(ctx)
 	logger.Info("bot detenido")
 	return nil

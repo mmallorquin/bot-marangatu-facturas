@@ -19,6 +19,15 @@ type Result struct {
 	Invoice invoice.Invoice
 	Model   string  // modelo que respondió
 	CostUSD float64 // costo informado por el proveedor
+	Usage   Usage
+}
+
+// Usage son los tokens que consumió la lectura.
+// Los de razonamiento se cobran como salida y ya están incluidos en OutputTokens.
+type Usage struct {
+	InputTokens     int
+	OutputTokens    int
+	ReasoningTokens int
 }
 
 // Reader lee los datos de una factura desde una imagen.

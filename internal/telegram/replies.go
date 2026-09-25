@@ -17,6 +17,7 @@ const (
 	NotInvoiceMessage        = "🤔 No parece una factura. Mandame una foto donde se vea el comprobante completo."
 	UnsupportedFormatMessage = "Por ahora solo leo imágenes JPG, PNG o WEBP. Mandá la factura como foto 📸"
 	TooLargeMessage          = "La imagen es muy pesada (máximo 10 MB). Mandala como foto normal 📸"
+	RetakeTip                = "📸 Tip: sacá la foto de nuevo con buena luz, de frente y con la factura completa."
 )
 
 const (

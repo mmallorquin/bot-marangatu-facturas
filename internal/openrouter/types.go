@@ -9,6 +9,13 @@ type chatRequest struct {
 	Messages       []message      `json:"messages"`
 	ResponseFormat responseFormat `json:"response_format"`
 	Provider       providerPrefs  `json:"provider"`
+	Reasoning      *reasoning     `json:"reasoning,omitempty"` // nil = lo que decida el modelo
+}
+
+// reasoning controla cuánto "piensa" el modelo antes de responder.
+type reasoning struct {
+	Effort  string `json:"effort"`  // none, minimal, low, medium, high
+	Exclude bool   `json:"exclude"` // no devolver el texto del razonamiento (no lo usamos)
 }
 
 type message struct {
@@ -53,6 +60,11 @@ type chatResponse struct {
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		Cost float64 `json:"cost"`
+		Cost                    float64 `json:"cost"`
+		PromptTokens            int     `json:"prompt_tokens"`
+		CompletionTokens        int     `json:"completion_tokens"`
+		CompletionTokensDetails struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
 	} `json:"usage"`
 }

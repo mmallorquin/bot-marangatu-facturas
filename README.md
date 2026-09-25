@@ -40,15 +40,18 @@ manejar tus credenciales.
 - **[Go](https://go.dev)**: el proyecto también es mi excusa para aprender Go viniendo de Python.
 - **[go-telegram/bot](https://github.com/go-telegram/bot)** para el bot de Telegram.
 - **[OpenRouter](https://openrouter.ai)** para leer la factura con cualquier modelo con visión.
-  Por defecto `deepseek/deepseek-v4.1-flash` (estimado: menos de USD 0,001 por factura); se cambia con `OPENROUTER_MODEL`.
+  Por defecto `google/gemini-3.1-flash-lite` (~3 s y ~USD 0,0009 por factura); se cambia con `OPENROUTER_MODEL`.
+  El modelo se eligió comparando con fotos reales: ver [docs/comparacion-modelos.md](docs/comparacion-modelos.md).
 
 ```
 cmd/bot/              → punto de entrada: arma el bot y lo pone a escuchar
+cmd/comparar/         → compara modelos leyendo las fotos de facturas/ (costo, tiempo, resultados)
 internal/config/      → lee y valida la configuración (.env)
 internal/telegram/    → recibe la foto, la descarga y responde
 internal/reader/      → contrato para leer facturas (independiente del proveedor de IA)
 internal/openrouter/  → implementación con OpenRouter: prompt, esquema JSON y cliente HTTP
 internal/invoice/     → la factura y sus validaciones: RUC (módulo 11), IVA, totales, formatos
+internal/benchmark/   → lógica de la comparación de modelos
 ```
 
 ### Cómo se valida una factura
@@ -78,6 +81,17 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
    go run ./cmd/bot
    ```
 5. Abrí tu bot en Telegram, mandá `/start` y después una foto de una factura.
+
+## Comparar modelos
+
+Poné fotos de facturas en `facturas/` (está en `.gitignore`) y corré:
+
+```bash
+go run ./cmd/comparar -modelos google/gemini-3.1-flash-lite,deepseek/deepseek-v4.1-flash -razonamiento defecto,none
+```
+
+Muestra una tabla con cuántas facturas leyó bien cada configuración, cuánto costó y cuánto tardó.
+No imprime datos de las facturas. Ojo: cada foto × configuración es una llamada paga a OpenRouter.
 
 ## Tests
 

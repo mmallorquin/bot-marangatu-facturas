@@ -10,6 +10,9 @@ import (
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 )
 
+// Con esta cantidad de problemas conviene sacar otra foto en vez de corregir a mano.
+const retakeThreshold = 3
+
 var typeLabels = map[string]string{
 	invoice.TypeFactura:     "Factura",
 	invoice.TypeNotaCredito: "Nota de crédito",
@@ -94,6 +97,9 @@ func formatReview(uncertain []string, issues []invoice.Issue) string {
 			labels = append(labels, labelOr(fieldLabels, field, field))
 		}
 		fmt.Fprintf(&b, "• No se lee bien: %s\n", strings.Join(labels, ", "))
+	}
+	if len(uncertain)+len(issues) >= retakeThreshold {
+		b.WriteString("\n" + RetakeTip)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
