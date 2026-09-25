@@ -4,29 +4,88 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 )
+
+// Tiempo máximo para descargar y leer una factura.
+const processTimeout = 2 * time.Minute
 
 // NewHandler devuelve el handler que responde a cada mensaje del bot.
 // Recibe el token solo para ocultarlo en los logs de error.
-func NewHandler(logger *slog.Logger, token string) bot.HandlerFunc {
-	return func(ctx context.Context, b *bot.Bot, update *models.Update) {
-		msg := update.Message
-		if msg == nil {
-			return
-		}
+func NewHandler(logger *slog.Logger, token string, rdr reader.Reader) bot.HandlerFunc {
+	h := &handler{logger: logger, token: token, reader: rdr}
+	return h.handle
+}
 
-		reply := ReplyFor(msg)
-		if reply == PhotoReceivedMessage {
-			logger.Info("imagen recibida", "chat_id", msg.Chat.ID)
-		}
+type handler struct {
+	logger *slog.Logger
+	token  string
+	reader reader.Reader
+}
 
-		_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: msg.Chat.ID, Text: reply})
-		if err != nil {
-			logger.Error("no se pudo responder", "chat_id", msg.Chat.ID, "error", Redact(err, token))
-		}
+func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
+	msg := update.Message
+	if msg == nil {
+		return
+	}
+
+	file, kind := imageFileOf(msg)
+	switch kind {
+	case notAnImage:
+		h.send(ctx, b, msg.Chat.ID, ReplyForText(msg.Text))
+	case imageUnsupported:
+		h.send(ctx, b, msg.Chat.ID, UnsupportedFormatMessage)
+	case imageTooLarge:
+		h.send(ctx, b, msg.Chat.ID, TooLargeMessage)
+	case imageSupported:
+		h.send(ctx, b, msg.Chat.ID, ReadingMessage)
+		h.send(ctx, b, msg.Chat.ID, h.readInvoice(ctx, b, msg.Chat.ID, file))
+	}
+}
+
+// readInvoice descarga la imagen, la lee con IA, la valida y devuelve la respuesta al usuario.
+func (h *handler) readInvoice(ctx context.Context, b *bot.Bot, chatID int64, file imageFile) string {
+	ctx, cancel := context.WithTimeout(ctx, processTimeout)
+	defer cancel()
+
+	data, err := downloadFile(ctx, b, file.fileID)
+	if err != nil {
+		h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.token))
+		return ReadErrorMessage
+	}
+
+	start := time.Now()
+	result, err := h.reader.Read(ctx, reader.Image{Data: data, MimeType: file.mimeType})
+	if err != nil {
+		h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
+		return ReadErrorMessage
+	}
+
+	issues := invoice.Validate(result.Invoice)
+	h.logger.Info("factura leída",
+		"chat_id", chatID,
+		"modelo", result.Model,
+		"costo_usd", result.CostUSD,
+		"tokens_entrada", result.Usage.InputTokens,
+		"tokens_salida", result.Usage.OutputTokens,
+		"tokens_razonamiento", result.Usage.ReasoningTokens,
+		"segundos", time.Since(start).Seconds(),
+		"es_comprobante", result.Invoice.IsInvoice,
+		"problemas", len(issues),
+	)
+	return FormatInvoice(result, issues)
+}
+
+func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text string) {
+	_, err := b.SendMessage(ctx, &bot.SendMessageParams{ChatID: chatID, Text: text})
+	if err != nil {
+		h.logger.Error("no se pudo responder", "chat_id", chatID, "error", Redact(err, h.token))
 	}
 }
 

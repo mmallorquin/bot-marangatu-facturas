@@ -2,6 +2,7 @@
 package telegram
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/go-telegram/bot/models"
@@ -9,24 +10,35 @@ import (
 
 const (
 	WelcomeMessage = "👋 ¡Hola! Soy el bot de facturas para Marangatu.\n\n" +
-		"Mandame una foto de tu factura y la voy a registrar por vos."
-	PhotoReceivedMessage = "📸 Factura recibida ✅\n\n" +
-		"Muy pronto voy a poder leerla y cargarla en tu planilla para Marangatu."
-	HelpMessage = "Por ahora solo entiendo fotos 📸 Mandame una foto de la factura."
+		"Mandame una foto de tu factura y te devuelvo los datos listos para registrar."
+	HelpMessage              = "Mandame una foto de la factura 📸 y la leo por vos."
+	ReadingMessage           = "⏳ Leyendo tu factura…"
+	ReadErrorMessage         = "😕 No pude leer la factura en este momento. Probá de nuevo en un rato."
+	NotInvoiceMessage        = "🤔 No parece una factura. Mandame una foto donde se vea el comprobante completo."
+	UnsupportedFormatMessage = "Por ahora solo leo imágenes JPG, PNG o WEBP. Mandá la factura como foto 📸"
+	TooLargeMessage          = "La imagen es muy pesada (máximo 10 MB). Mandala como foto normal 📸"
+	RetakeTip                = "📸 Tip: sacá la foto de nuevo con buena luz, de frente y con la factura completa."
 )
 
-const startCommand = "/start"
+const (
+	startCommand = "/start"
 
-// ReplyFor decide qué responderle a un mensaje. Es una función pura: no envía nada.
-func ReplyFor(msg *models.Message) string {
-	switch {
-	case isStartCommand(msg.Text):
+	// Telegram permite descargar hasta 20 MB; una foto de factura no necesita más de 10.
+	maxImageBytes = 10 << 20
+
+	// Telegram convierte las fotos comprimidas siempre a JPEG.
+	photoMimeType = "image/jpeg"
+)
+
+// Formatos que aceptan los modelos con visión.
+var supportedMimeTypes = []string{"image/jpeg", "image/png", "image/webp"}
+
+// ReplyForText decide qué responder a un mensaje de texto.
+func ReplyForText(text string) string {
+	if isStartCommand(text) {
 		return WelcomeMessage
-	case isImage(msg):
-		return PhotoReceivedMessage
-	default:
-		return HelpMessage
 	}
+	return HelpMessage
 }
 
 // isStartCommand acepta "/start" y "/start@NombreDelBot" (así llega en grupos).
@@ -39,11 +51,43 @@ func isStartCommand(text string) bool {
 	return command == startCommand || strings.HasPrefix(command, startCommand+"@")
 }
 
-// isImage detecta fotos comprimidas o imágenes enviadas como archivo
-// (estas últimas conservan mejor calidad para leer la factura).
-func isImage(msg *models.Message) bool {
+type imageKind int
+
+const (
+	notAnImage imageKind = iota
+	imageSupported
+	imageUnsupported
+	imageTooLarge
+)
+
+// imageFile identifica el archivo de Telegram a descargar.
+type imageFile struct {
+	fileID   string
+	mimeType string
+}
+
+// imageFileOf detecta si el mensaje trae una imagen que podemos leer.
+func imageFileOf(msg *models.Message) (imageFile, imageKind) {
 	if len(msg.Photo) > 0 {
-		return true
+		return imageFile{fileID: largestPhoto(msg.Photo).FileID, mimeType: photoMimeType}, imageSupported
 	}
-	return msg.Document != nil && strings.HasPrefix(msg.Document.MimeType, "image/")
+
+	doc := msg.Document
+	switch {
+	case doc == nil:
+		return imageFile{}, notAnImage
+	case !slices.Contains(supportedMimeTypes, doc.MimeType):
+		return imageFile{}, imageUnsupported
+	case doc.FileSize > maxImageBytes:
+		return imageFile{}, imageTooLarge
+	default:
+		return imageFile{fileID: doc.FileID, mimeType: doc.MimeType}, imageSupported
+	}
+}
+
+// largestPhoto elige la versión de mayor resolución (mejor para leer números chicos).
+func largestPhoto(sizes []models.PhotoSize) models.PhotoSize {
+	return slices.MaxFunc(sizes, func(a, b models.PhotoSize) int {
+		return a.Width*a.Height - b.Width*b.Height
+	})
 }
