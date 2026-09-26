@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_saved_unique
 	ON invoices (chat_id, dedup_key) WHERE status = 'guardada';
 CREATE INDEX IF NOT EXISTS invoices_chat_period ON invoices (chat_id, status, period);
+
+CREATE TABLE IF NOT EXISTS chat_settings (
+	chat_id    INTEGER PRIMARY KEY,
+	ruc        TEXT    NOT NULL DEFAULT '', -- RUC del contribuyente que informa
+	impute_iva INTEGER NOT NULL DEFAULT 0,
+	impute_ire INTEGER NOT NULL DEFAULT 0,
+	impute_irp INTEGER NOT NULL DEFAULT 0  -- IRP-RSP
+);
+
+CREATE TABLE IF NOT EXISTS exports (
+	chat_id INTEGER NOT NULL,
+	period  TEXT    NOT NULL, -- AAAA-MM
+	seq     INTEGER NOT NULL, -- número de archivo del período: V0001, V0002...
+	PRIMARY KEY (chat_id, period)
+);
 `
 
 // Draft es una factura recién leída.
@@ -255,27 +270,15 @@ func (s *Store) ClearAwaiting(ctx context.Context, chatID int64) error {
 
 // MonthSummary suma las facturas guardadas del chat en el período AAAA-MM.
 func (s *Store) MonthSummary(ctx context.Context, chatID int64, period string) (Summary, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT invoice_json FROM invoices WHERE chat_id = ? AND status = ? AND period = ?`,
-		chatID, StatusSaved, period)
+	invoices, err := s.SavedInvoices(ctx, chatID, period)
 	if err != nil {
-		return Summary{}, fmt.Errorf("leyendo el resumen: %w", err)
+		return Summary{}, err
 	}
-	defer rows.Close()
-
 	var sum Summary
-	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
-			return Summary{}, fmt.Errorf("leyendo el resumen: %w", err)
-		}
-		var inv invoice.Invoice
-		if err := json.Unmarshal([]byte(data), &inv); err != nil {
-			return Summary{}, fmt.Errorf("leyendo una factura del resumen: %w", err)
-		}
+	for _, inv := range invoices {
 		sum = addInvoice(sum, inv)
 	}
-	return sum, rows.Err()
+	return sum, nil
 }
 
 func addInvoice(sum Summary, inv invoice.Invoice) Summary {

@@ -30,7 +30,7 @@ manejar tus credenciales.
 - [x] **Etapa 1 — Arranque:** estructura del proyecto y bot de Telegram que recibe fotos
 - [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
 - [x] **Etapa 3 — Confirmación:** guardar, corregir o descartar cada factura desde el chat
-- [ ] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
+- [x] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
 - [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre como servicio en la Mac; falta un servidor)
 - [ ] **Etapa 6 — WhatsApp:** sumar WhatsApp como segundo canal
 - [ ] **Futuro:** carga automática en Marangatu
@@ -51,7 +51,8 @@ internal/telegram/    → recibe la foto, la descarga y responde
 internal/reader/      → contrato para leer facturas (independiente del proveedor de IA)
 internal/openrouter/  → implementación con OpenRouter: prompt, esquema JSON y cliente HTTP
 internal/invoice/     → la factura, sus validaciones (RUC módulo 11, IVA, totales) y las correcciones
-internal/store/       → base SQLite local: borradores, facturas guardadas, duplicados y resumen mensual
+internal/store/       → base SQLite local: facturas, duplicados, resumen, configuración por chat
+internal/marangatu/   → arma el ZIP para importar compras en Marangatu (RG 90)
 internal/benchmark/   → lógica de la comparación de modelos
 ```
 
@@ -100,7 +101,20 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 |---|---|
 | `/resumen` | Facturas guardadas este mes, con IVA y total |
 | `/resumen 08/2026` | Lo mismo para otro mes |
+| `/exportar` | Arma el archivo del mes para importar en Marangatu |
+| `/exportar 08/2026` | Lo mismo para otro mes |
+| `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |
+| `/imputar iva irp` | A qué impuestos imputás tus compras: `iva`, `ire`, `irp` |
 | `/cancelar` | Cancela una corrección a medias |
+
+### Exportar a Marangatu
+
+1. La primera vez: `/ruc 1234567-8` y `/imputar iva` (o los impuestos que correspondan).
+2. `/exportar` te manda un ZIP como `1234567_REG_092026_V0001.zip`.
+3. Subilo en Marangatu, en la importación del Registro de Comprobantes.
+
+Las facturas electrónicas (con CDC) no van en el archivo: Marangatu las trae solo.
+El formato está documentado en [docs/rg90-compras.md](docs/rg90-compras.md).
 
 Las facturas se guardan en `data/facturas.db` (SQLite, en `.gitignore`), separadas por chat.
 También se guarda lo que leyó la IA antes de tus correcciones, para medir qué tan bien lee cada modelo.

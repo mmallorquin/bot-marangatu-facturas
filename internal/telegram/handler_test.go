@@ -33,6 +33,9 @@ type outgoing struct {
 	text   string
 	markup string // reply_markup en JSON
 	alert  bool
+
+	fileName string // solo sendDocument
+	fileData []byte
 }
 
 // fakeTelegram simula la API de Telegram: mensajes, ediciones, botones, getFile y descarga.
@@ -61,6 +64,18 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_id":"x","file_path":"photos/factura.jpg"}}`)
+		return
+	case method == "sendDocument":
+		sent := outgoing{method: method, text: r.FormValue("caption")}
+		if files := r.MultipartForm.File["document"]; len(files) == 1 {
+			sent.fileName = files[0].Filename
+			if file, err := files[0].Open(); err == nil {
+				sent.fileData, _ = io.ReadAll(file)
+				_ = file.Close()
+			}
+		}
+		f.requests = append(f.requests, sent)
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":11,"chat":{"id":42}}}`)
 		return
 	case method == "answerCallbackQuery":
 		f.requests = append(f.requests, outgoing{method: method, text: r.FormValue("text"), alert: r.FormValue("show_alert") == "true"})

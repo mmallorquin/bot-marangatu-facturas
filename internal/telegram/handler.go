@@ -28,6 +28,11 @@ type InvoiceStore interface {
 	Awaiting(ctx context.Context, chatID int64) (store.Pending, bool, error)
 	ClearAwaiting(ctx context.Context, chatID int64) error
 	MonthSummary(ctx context.Context, chatID int64, period string) (store.Summary, error)
+	SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error)
+	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
+	SetRUC(ctx context.Context, chatID int64, ruc string) error
+	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
+	NextExportSeq(ctx context.Context, chatID int64, period string) (int, error)
 }
 
 // Deps son las dependencias del handler.
@@ -88,6 +93,15 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case startCommand:
 		h.send(ctx, b, chatID, WelcomeMessage, nil)
+		return
+	case rucCommand:
+		h.setRUC(ctx, b, chatID, text)
+		return
+	case imputeCommand:
+		h.setImputations(ctx, b, chatID, text)
+		return
+	case exportCommand:
+		h.exportMonth(ctx, b, chatID, text)
 		return
 	}
 
