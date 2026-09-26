@@ -124,12 +124,18 @@ func parsePeriod(text string, now time.Time) (string, error) {
 	return "", fmt.Errorf("no entiendo el período %q: usá /resumen 09/2026", fields[1])
 }
 
+// periodTitle convierte "2026-09" en "Septiembre 2026".
+func periodTitle(period string) string {
+	parsed, err := time.Parse("2006-01", period)
+	if err != nil {
+		return period
+	}
+	return fmt.Sprintf("%s %d", monthNames[parsed.Month()-1], parsed.Year())
+}
+
 // FormatMonthSummary arma el mensaje de /resumen.
 func FormatMonthSummary(period string, sum store.Summary) string {
-	title := period
-	if parsed, err := time.Parse("2006-01", period); err == nil {
-		title = fmt.Sprintf("%s %d", monthNames[parsed.Month()-1], parsed.Year())
-	}
+	title := periodTitle(period)
 	if sum.Count == 0 {
 		return fmt.Sprintf("📊 %s\n\nNo guardaste facturas de este mes todavía.", title)
 	}

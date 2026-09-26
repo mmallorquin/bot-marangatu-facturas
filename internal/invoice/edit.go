@@ -45,7 +45,7 @@ func Edit(inv Invoice, field, raw string) (Invoice, error) {
 	case FieldIssuerName:
 		edited.IssuerName, err = parseName(raw)
 	case FieldIssuerRUC:
-		edited.IssuerRUC = normalizeRUC(raw)
+		edited.IssuerRUC = NormalizeRUC(raw)
 	case FieldTimbrado:
 		edited.Timbrado = whitespaceNoise.Replace(raw)
 	case FieldNumber:
@@ -82,8 +82,8 @@ func parseName(raw string) (string, error) {
 	return raw, nil
 }
 
-// normalizeRUC pasa a mayúsculas y agrega el guion antes del dígito verificador si falta.
-func normalizeRUC(raw string) string {
+// NormalizeRUC pasa a mayúsculas y agrega el guion antes del dígito verificador si falta.
+func NormalizeRUC(raw string) string {
 	ruc := strings.ToUpper(whitespaceNoise.Replace(raw))
 	if !strings.Contains(ruc, "-") && len(ruc) >= 2 {
 		ruc = ruc[:len(ruc)-1] + "-" + ruc[len(ruc)-1:]

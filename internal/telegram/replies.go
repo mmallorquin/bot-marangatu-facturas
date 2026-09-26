@@ -14,6 +14,9 @@ const (
 	WelcomeMessage = "👋 ¡Hola! Soy el bot de facturas para Marangatu.\n\n" +
 		"Mandame una foto de tu factura: la leo, la revisás y la guardás.\n\n" +
 		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
+		"/exportar — archivo del mes para importar en Marangatu\n" +
+		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
+		"/imputar — a qué impuestos imputás tus compras (iva, ire, irp)\n" +
 		"/cancelar — cancelar una corrección"
 	HelpMessage              = "Mandame una foto de la factura 📸 y la leo por vos."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
