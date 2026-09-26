@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ func setValidEnv(t *testing.T, token string) {
 	t.Helper()
 	t.Setenv(config.TokenEnvVar, token)
 	t.Setenv(config.OpenRouterKeyVar, "sk-or-test")
+	t.Setenv(config.DatabasePathVar, filepath.Join(t.TempDir(), "facturas.db"))
 }
 
 func TestRunFailsWithClearErrorWhenTokenIsMissing(t *testing.T) {

@@ -32,6 +32,7 @@ func TestLoadReadsRequiredValuesAndDefaults(t *testing.T) {
 		OpenRouterModel:  DefaultModel,
 		OpenRouterZDR:    true,
 		ReasoningEffort:  DefaultReasoningEffort,
+		DatabasePath:     DefaultDatabasePath,
 	}
 	if cfg != want {
 		t.Errorf("Load() = %+v, se esperaba %+v", cfg, want)
@@ -52,6 +53,17 @@ func TestLoadTrimsWhitespace(t *testing.T) {
 	if cfg.TelegramBotToken != "123456:ABC-token" || cfg.OpenRouterAPIKey != "sk-or-test" ||
 		cfg.OpenRouterModel != "google/gemini-3.1-flash-lite" {
 		t.Errorf("no se quitaron los espacios: %+v", cfg)
+	}
+}
+
+func TestLoadReadsCustomDatabasePath(t *testing.T) {
+	env := validEnv()
+	env[DatabasePathVar] = " /var/lib/bot/facturas.db "
+
+	cfg, err := Load(envFrom(env))
+
+	if err != nil || cfg.DatabasePath != "/var/lib/bot/facturas.db" {
+		t.Errorf("DatabasePath = %q, err = %v", cfg.DatabasePath, err)
 	}
 }
 

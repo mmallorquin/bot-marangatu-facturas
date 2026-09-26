@@ -16,7 +16,11 @@ const (
 	OpenRouterModelVar = "OPENROUTER_MODEL"
 	OpenRouterZDRVar   = "OPENROUTER_ZDR"
 	ReasoningVar       = "OPENROUTER_REASONING"
+	DatabasePathVar    = "DATABASE_PATH"
 )
+
+// DefaultDatabasePath está dentro de data/, que está en .gitignore.
+const DefaultDatabasePath = "data/facturas.db"
 
 // DefaultModel es el modelo que se usa si no se configura OPENROUTER_MODEL.
 // Elegido con cmd/comparar sobre fotos reales: el que más facturas leyó sin problemas,
@@ -43,6 +47,7 @@ type Config struct {
 	OpenRouterModel  string
 	OpenRouterZDR    bool   // true: solo proveedores que no guardan las facturas
 	ReasoningEffort  string // cuánto "piensa" el modelo; vacío = su valor por defecto
+	DatabasePath     string // archivo SQLite con las facturas
 }
 
 // Load arma la configuración usando getenv (normalmente os.Getenv).
@@ -78,12 +83,18 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("%w: usá %s", ErrInvalidReasoning, strings.Join(validReasoningEfforts, ", "))
 	}
 
+	dbPath := read(DatabasePathVar)
+	if dbPath == "" {
+		dbPath = DefaultDatabasePath
+	}
+
 	return Config{
 		TelegramBotToken: token,
 		OpenRouterAPIKey: apiKey,
 		OpenRouterModel:  model,
 		OpenRouterZDR:    zdr,
 		ReasoningEffort:  effort,
+		DatabasePath:     dbPath,
 	}, nil
 }
 

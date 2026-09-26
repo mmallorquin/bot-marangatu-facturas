@@ -15,6 +15,7 @@ import (
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/config"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/openrouter"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/telegram"
 )
 
@@ -43,6 +44,12 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		return err
 	}
 
+	invoices, err := store.Open(cfg.DatabasePath)
+	if err != nil {
+		return err
+	}
+	defer invoices.Close()
+
 	invoiceReader := openrouter.New(openrouter.Options{
 		APIKey: cfg.OpenRouterAPIKey,
 		Model:  cfg.OpenRouterModel,
@@ -53,7 +60,12 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 
 	token := cfg.TelegramBotToken
 	opts := append([]bot.Option{
-		bot.WithDefaultHandler(telegram.NewHandler(logger, token, invoiceReader)),
+		bot.WithDefaultHandler(telegram.NewHandler(telegram.Deps{
+			Logger: logger,
+			Token:  token,
+			Reader: invoiceReader,
+			Store:  invoices,
+		})),
 		bot.WithErrorsHandler(telegram.NewErrorsHandler(logger, token)),
 	}, extraOpts...)
 
@@ -63,7 +75,8 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	}
 
 	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
-		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort)
+		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,
+		"base", cfg.DatabasePath)
 	b.Start(ctx)
 	logger.Info("bot detenido")
 	return nil
