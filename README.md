@@ -31,7 +31,7 @@ manejar tus credenciales.
 - [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
 - [x] **Etapa 3 — Confirmación:** guardar, corregir o descartar cada factura desde el chat
 - [ ] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
-- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales
+- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre como servicio en la Mac; falta un servidor)
 - [ ] **Etapa 6 — WhatsApp:** sumar WhatsApp como segundo canal
 - [ ] **Futuro:** carga automática en Marangatu
 
@@ -104,6 +104,23 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 
 Las facturas se guardan en `data/facturas.db` (SQLite, en `.gitignore`), separadas por chat.
 También se guarda lo que leyó la IA antes de tus correcciones, para medir qué tan bien lee cada modelo.
+
+## Dejarlo corriendo en tu Mac
+
+En vez de `go run`, el bot puede correr como servicio de macOS (launchd):
+arranca solo al iniciar sesión, se reinicia si se cae y no necesita una terminal abierta.
+
+```bash
+scripts/servicio-mac.sh instalar     # compila e instala el servicio
+scripts/servicio-mac.sh estado       # ¿está corriendo?
+scripts/servicio-mac.sh logs         # log en vivo (Ctrl+C para salir)
+scripts/servicio-mac.sh actualizar   # después de un git pull: recompila y reinicia
+scripts/servicio-mac.sh desinstalar  # lo detiene y lo quita (la base queda intacta)
+```
+
+- No corras `go run ./cmd/bot` al mismo tiempo: dos bots con el mismo token chocan.
+- Si la Mac se suspende, el bot deja de responder hasta que se despierte.
+- El log queda en `~/Library/Logs/bot-marangatu-facturas.log`.
 
 ## Comparar modelos
 
