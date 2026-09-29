@@ -186,6 +186,18 @@ func (h *harness) press(c callback) {
 	}})
 }
 
+// pressRaw aprieta un botón cuyo callback no pertenece a una factura.
+func (h *harness) pressRaw(data string) {
+	h.send(&models.Update{CallbackQuery: &models.CallbackQuery{
+		ID:   "cb-export",
+		Data: data,
+		Message: models.MaybeInaccessibleMessage{
+			Type:    models.MaybeInaccessibleMessageTypeMessage,
+			Message: &models.Message{ID: 20, Chat: models.Chat{ID: testChatID}},
+		},
+	}})
+}
+
 // firstDraftID lee la foto y devuelve el ID del borrador creado.
 func (h *harness) firstDraftID(t *testing.T) int64 {
 	t.Helper()

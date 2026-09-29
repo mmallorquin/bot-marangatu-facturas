@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -24,7 +26,45 @@ const (
 	askImputations = "¿A qué impuestos imputás tus compras? Escribí uno o varios, por ejemplo:\n" +
 		"/imputar iva\n/imputar iva irp\n\n(IVA, IRE o IRP-RSP)"
 	uploadHint = "Subilo en Marangatu, en la importación del Registro de Comprobantes (RG 90)."
+
+	exportCallbackPrefix = "x"
+	exportActionCSV      = "c"
+	exportActionExcel    = "e"
+	exportActionZIP      = "z"
+	exportActionCancel   = "n"
+	exportPreviewLimit   = 10
 )
+
+type exportCallback struct {
+	action string
+	period string
+}
+
+func (c exportCallback) encode() string {
+	return fmt.Sprintf("%s:%s:%s", exportCallbackPrefix, c.action, c.period)
+}
+
+func parseExportCallback(data string) (exportCallback, error) {
+	parts := strings.Split(data, ":")
+	if len(parts) != 3 || parts[0] != exportCallbackPrefix ||
+		!slices.Contains([]string{exportActionCSV, exportActionExcel, exportActionZIP, exportActionCancel}, parts[1]) {
+		return exportCallback{}, errInvalidCallback
+	}
+	if _, err := time.Parse("2006-01", parts[2]); err != nil {
+		return exportCallback{}, errInvalidCallback
+	}
+	return exportCallback{action: parts[1], period: parts[2]}, nil
+}
+
+func exportPreviewKeyboard(period string) *models.InlineKeyboardMarkup {
+	button := func(text, action string) models.InlineKeyboardButton {
+		return models.InlineKeyboardButton{Text: text, CallbackData: exportCallback{action: action, period: period}.encode()}
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
+		{button("📄 Descargar CSV", exportActionCSV), button("📊 Descargar Excel", exportActionExcel)},
+		{button("✅ Generar ZIP", exportActionZIP), button("❌ Cancelar", exportActionCancel)},
+	}}
+}
 
 // Palabras aceptadas en /imputar.
 var imputationWords = map[string]func(*store.Imputations){
@@ -109,7 +149,7 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 	h.send(ctx, b, chatID, "✅ Tus compras se van a imputar a: "+formatImputations(imp), nil)
 }
 
-// exportMonth arma el archivo para Marangatu y lo envía como documento.
+// exportMonth muestra una previa; el ZIP se arma recién cuando el usuario lo confirma.
 func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 	period, err := parsePeriod(text, h.deps.Now())
 	if err != nil {
@@ -142,36 +182,172 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		return
 	}
 
-	seq, err := h.deps.Store.NextExportSeq(ctx, chatID, period)
-	if err != nil {
-		h.logger.Error("no se pudo numerar la exportación", "chat_id", chatID, "error", err)
-		h.send(ctx, b, chatID, StoreErrorMessage, nil)
-		return
-	}
 	settings := marangatu.Settings{
 		RUC: cs.RUC, ImputeIVA: cs.Imputations.IVA, ImputeIRE: cs.Imputations.IRE, ImputeIRP: cs.Imputations.IRP,
 	}
-	export, err := marangatu.BuildPurchases(invoices, settings, period, marangatu.FileID(seq))
+	preview, err := marangatu.PreviewPurchases(invoices, settings, period)
 	if errors.Is(err, marangatu.ErrNothingToExport) {
-		h.send(ctx, b, chatID, "No hay facturas para importar de "+periodTitle(period)+".\n"+formatSkipped(export.Skipped), nil)
+		noun := "comprobantes guardados"
+		if len(invoices) == 1 {
+			noun = "comprobante guardado"
+		}
+		message := fmt.Sprintf("📋 %s\n\nTenés %d %s, pero ninguno entra en el ZIP.\n\n%s\n\nSiguen guardados y aparecen en /resumen.",
+			periodTitle(period), len(invoices), noun, formatSkipped(preview.Skipped))
+		h.send(ctx, b, chatID, message, nil)
 		return
 	}
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
+	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations), exportPreviewKeyboard(period))
+}
+
+// formatExportPreview resume en el chat las primeras filas del mismo conjunto que entrará en el ZIP.
+func formatExportPreview(period string, preview marangatu.Preview, imp store.Imputations) string {
+	noun := "comprobantes"
+	if len(preview.Invoices) == 1 {
+		noun = "comprobante"
+	}
+
+	var text strings.Builder
+	fmt.Fprintf(&text, "📋 Previa — %s\n\n", periodTitle(period))
+	fmt.Fprintf(&text, "%d %s listos para Marangatu\n", len(preview.Invoices), noun)
+	fmt.Fprintf(&text, "Total: %s Gs\n", formatGs(preview.Total))
+	fmt.Fprintf(&text, "Imputación: %s\n", formatImputations(imp))
+
+	for index, inv := range preview.Invoices[:min(len(preview.Invoices), exportPreviewLimit)] {
+		fmt.Fprintf(&text, "\n%d. %s · %s · %s · %s · %s Gs",
+			index+1, displayDate(inv.Date), previewIssuer(inv.IssuerName), inv.IssuerRUC, inv.Number, formatGs(inv.Total))
+	}
+	if remaining := len(preview.Invoices) - exportPreviewLimit; remaining > 0 {
+		fmt.Fprintf(&text, "\n\n… y %d más. Descargá CSV o Excel para ver todo.", remaining)
+	}
+	if skipped := formatSkipped(preview.Skipped); skipped != "" {
+		text.WriteString("\n\n" + skipped)
+	}
+	return text.String()
+}
+
+func previewIssuer(name string) string {
+	const maxRunes = 40
+	clean := strings.Join(strings.Fields(name), " ")
+	runes := []rune(clean)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes-1]) + "…"
+	}
+	return clean
+}
+
+type preparedExport struct {
+	settings marangatu.Settings
+	invoices []invoice.Invoice
+	preview  marangatu.Preview
+}
+
+func (h *handler) prepareExport(ctx context.Context, chatID int64, period string) (preparedExport, error) {
+	cs, err := h.deps.Store.Settings(ctx, chatID)
+	if err != nil {
+		return preparedExport{}, err
+	}
+	settings := marangatu.Settings{
+		RUC: cs.RUC, ImputeIVA: cs.Imputations.IVA, ImputeIRE: cs.Imputations.IRE, ImputeIRP: cs.Imputations.IRP,
+	}
+	invoices, err := h.deps.Store.SavedInvoices(ctx, chatID, period)
+	if err != nil {
+		return preparedExport{}, err
+	}
+	preview, err := marangatu.PreviewPurchases(invoices, settings, period)
+	if err != nil {
+		return preparedExport{}, err
+	}
+	return preparedExport{settings: settings, invoices: invoices, preview: preview}, nil
+}
+
+func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery, msg *models.Message) {
+	callback, err := parseExportCallback(query.Data)
+	if err != nil {
+		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
+		return
+	}
+	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}
+	if callback.action == exportActionCancel {
+		h.editText(ctx, b, press, "❌ Exportación cancelada.", noKeyboard())
+		h.answer(ctx, b, query.ID, "", false)
+		return
+	}
+
+	prepared, err := h.prepareExport(ctx, press.chatID, callback.period)
+	if err != nil {
+		h.logger.Error("no se pudo reconstruir la exportación", "chat_id", press.chatID, "periodo", callback.period, "error", err)
+		h.answer(ctx, b, query.ID, "La previa ya no está disponible. Usá /exportar de nuevo.", true)
+		return
+	}
+
+	switch callback.action {
+	case exportActionCSV:
+		file, err := prepared.preview.CSV()
+		if err == nil {
+			err = h.sendReviewFile(ctx, b, press.chatID, file, "CSV")
+		}
+		if err != nil {
+			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
+			return
+		}
+		h.answer(ctx, b, query.ID, "CSV listo", false)
+	case exportActionExcel:
+		file, err := prepared.preview.XLSX()
+		if err == nil {
+			err = h.sendReviewFile(ctx, b, press.chatID, file, "Excel")
+		}
+		if err != nil {
+			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
+			return
+		}
+		h.answer(ctx, b, query.ID, "Excel listo", false)
+	case exportActionZIP:
+		h.sendConfirmedZIP(ctx, b, press, callback.period, prepared)
+	}
+}
+
+func (h *handler) sendReviewFile(ctx context.Context, b *bot.Bot, chatID int64, file marangatu.ReviewFile, format string) error {
+	_, err := b.SendDocument(ctx, &bot.SendDocumentParams{
+		ChatID:   chatID,
+		Document: &models.InputFileUpload{Filename: file.FileName, Data: bytes.NewReader(file.Data)},
+		Caption:  "🔎 Archivo " + format + " para revisar. No lo subas a Marangatu; el archivo oficial es el ZIP.",
+	})
+	return err
+}
+
+func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press buttonPress, period string, prepared preparedExport) {
+	seq, err := h.deps.Store.NextExportSeq(ctx, press.chatID, period)
+	if err != nil {
+		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
+		return
+	}
+	export, err := marangatu.BuildPurchases(prepared.invoices, prepared.settings, period, marangatu.FileID(seq))
+	if err != nil {
+		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
+		return
+	}
 
 	_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
-		ChatID:   chatID,
+		ChatID:   press.chatID,
 		Document: &models.InputFileUpload{Filename: export.FileName, Data: bytes.NewReader(export.Zip)},
 		Caption:  exportCaption(period, export),
 	})
 	if err != nil {
-		h.logger.Error("no se pudo enviar el archivo", "chat_id", chatID, "error", Redact(err, h.deps.Token))
-		h.send(ctx, b, chatID, StoreErrorMessage, nil)
+		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
 		return
 	}
-	h.logger.Info("exportación enviada", "chat_id", chatID, "periodo", period, "filas", export.Rows, "omitidas", len(export.Skipped))
+	h.editKeyboard(ctx, b, press, noKeyboard())
+	h.answer(ctx, b, press.queryID, "ZIP listo", false)
+	h.logger.Info("exportación enviada", "chat_id", press.chatID, "periodo", period, "filas", export.Rows, "omitidas", len(export.Skipped))
+}
+
+func (h *handler) exportCallbackError(ctx context.Context, b *bot.Bot, queryID string, chatID int64, err error) {
+	h.logger.Error("no se pudo generar o enviar el archivo", "chat_id", chatID, "error", Redact(err, h.deps.Token))
+	h.answer(ctx, b, queryID, StoreErrorMessage, true)
 }
 
 // exportCaption explica qué hay en el archivo y qué quedó afuera.

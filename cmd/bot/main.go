@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/joho/godotenv"
@@ -73,6 +74,11 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	if err != nil {
 		return errors.New(telegram.Redact(err, token))
 	}
+	menuCtx, cancelMenu := context.WithTimeout(ctx, 10*time.Second)
+	if err := telegram.ConfigureMenu(menuCtx, b); err != nil {
+		logger.Warn("no se pudo configurar el menú de Telegram", "error", telegram.Redact(err, token))
+	}
+	cancelMenu()
 
 	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
 		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,

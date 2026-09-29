@@ -1,0 +1,27 @@
+[Unit]
+Description=Bot Marangatu - Facturas por Telegram
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=bot-marangatu
+Group=bot-marangatu
+StateDirectory=bot-marangatu
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/bot-marangatu
+EnvironmentFile=/etc/bot-marangatu.env
+Environment=DATABASE_PATH=/var/lib/bot-marangatu/facturas.db
+Environment=GOMEMLIMIT=192MiB
+ExecStart=/opt/bot-marangatu/bot
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

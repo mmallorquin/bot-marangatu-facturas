@@ -12,6 +12,11 @@ de la DNIT (versión 1, junio 2021), aplicado en `internal/marangatu`.
 - **No** se incluyen comprobantes electrónicos (e-Kuatia, con CDC) ni virtuales: Marangatu los obtiene solo.
 - Los RUC van **sin dígito verificador**.
 
+Antes de generar el ZIP, el bot permite descargar una previa en CSV o Excel con encabezados.
+Ambas previas contienen los mismos 20 campos y las mismas filas que el archivo oficial, pero son
+solo para revisión: **no se suben a Marangatu**. El único archivo de importación que entrega el bot
+es el ZIP con el TXT sin encabezado.
+
 ## Registro de compras (tipo 2): 20 campos en este orden
 
 | # | Campo | Valor que genera el bot |

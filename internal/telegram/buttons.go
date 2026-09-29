@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -24,6 +25,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 	msg := query.Message.Message
 	if msg == nil { // mensaje muy viejo o inaccesible
 		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
+		return
+	}
+	if strings.HasPrefix(query.Data, exportCallbackPrefix+":") {
+		h.handleExportCallback(ctx, b, query, msg)
 		return
 	}
 	c, err := parseCallback(query.Data)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/config"
 )
@@ -80,5 +82,61 @@ func TestRunStopsCleanlyWhenContextIsCancelled(t *testing.T) {
 	// Assert
 	if err != nil {
 		t.Errorf("error inesperado al detener el bot: %v", err)
+	}
+}
+
+func TestRunRegistersTelegramCommandMenu(t *testing.T) {
+	setValidEnv(t, "123456:ABC-token")
+	commandsPayload := make(chan string, 1)
+	menuPayload := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseMultipartForm(1 << 20)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/setMyCommands"):
+			commandsPayload <- r.FormValue("commands")
+			_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+		case strings.HasSuffix(r.URL.Path, "/setChatMenuButton"):
+			menuPayload <- r.FormValue("menu_button")
+			_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+		default:
+			_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+		}
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := run(ctx, discardLogger(), bot.WithServerURL(server.URL), bot.WithSkipGetMe()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	var commands []models.BotCommand
+	select {
+	case payload := <-commandsPayload:
+		if err := json.Unmarshal([]byte(payload), &commands); err != nil {
+			t.Fatalf("comandos inválidos: %v", err)
+		}
+	default:
+		t.Fatal("no registró los comandos para elegirlos en Telegram")
+	}
+	for _, name := range []string{"start", "resumen", "exportar", "ruc", "imputar", "cancelar"} {
+		found := false
+		for _, command := range commands {
+			if command.Command == name && command.Description != "" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("falta el comando %s con descripción en el menú: %+v", name, commands)
+		}
+	}
+	select {
+	case payload := <-menuPayload:
+		var menu struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(payload), &menu); err != nil || menu.Type != "commands" {
+			t.Errorf("botón de menú = %q, %v", payload, err)
+		}
+	default:
+		t.Error("no habilitó el botón de menú de comandos")
 	}
 }

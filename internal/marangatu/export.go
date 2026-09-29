@@ -112,43 +112,25 @@ func FileID(seq int) string {
 // BuildPurchases arma el ZIP de compras de un período (AAAA-MM).
 // Las facturas que no se pueden importar se informan en Export.Skipped.
 func BuildPurchases(invoices []invoice.Invoice, s Settings, period, fileID string) (Export, error) {
-	if err := s.Validate(); err != nil {
-		return Export{}, err
-	}
-	month, err := time.Parse("2006-01", period)
-	if err != nil {
-		return Export{}, fmt.Errorf("%w: %q", ErrInvalidPeriod, period)
-	}
 	if !fileIDPattern.MatchString(fileID) {
 		return Export{}, fmt.Errorf("%w: %q", ErrInvalidFileID, fileID)
 	}
+	preview, err := PreviewPurchases(invoices, s, period)
+	if err != nil {
+		return Export{Skipped: preview.Skipped}, err
+	}
 
-	var (
-		lines   strings.Builder
-		rows    int
-		skipped []Skipped
-	)
-	for _, inv := range invoices {
-		if reason := skipReason(inv); reason != "" {
-			skipped = append(skipped, Skipped{Number: inv.Number, Reason: reason})
-			continue
-		}
+	var lines strings.Builder
+	for _, inv := range preview.Invoices {
 		lines.WriteString(purchaseRow(inv, s) + lineEnding)
-		rows++
 	}
-	if rows == 0 {
-		return Export{Skipped: skipped}, ErrNothingToExport
-	}
-	if rows > maxRows {
-		return Export{}, fmt.Errorf("%w: %d (máximo %d)", ErrTooManyRows, rows, maxRows)
-	}
-
+	month, _ := time.Parse("2006-01", period) // ya fue validado por PreviewPurchases
 	baseName := fmt.Sprintf("%s_REG_%s_%s", rucBase(s.RUC), month.Format("012006"), fileID)
 	data, err := zipSingleFile(baseName+fileExtension, []byte(lines.String()))
 	if err != nil {
 		return Export{}, err
 	}
-	return Export{FileName: baseName + ".zip", Zip: data, Rows: rows, Skipped: skipped}, nil
+	return Export{FileName: baseName + ".zip", Zip: data, Rows: len(preview.Invoices), Skipped: preview.Skipped}, nil
 }
 
 func skipReason(inv invoice.Invoice) string {
@@ -167,12 +149,17 @@ func skipReason(inv invoice.Invoice) string {
 
 // purchaseRow arma los 20 campos de un registro de compras, en el orden de la especificación.
 func purchaseRow(inv invoice.Invoice, s Settings) string {
+	return strings.Join(purchaseFields(inv, s), fieldSeparator)
+}
+
+// purchaseFields devuelve los 20 campos de compras en el orden oficial.
+func purchaseFields(inv invoice.Invoice, s Settings) []string {
 	taxed10, taxed5, exempt := inv.Taxed10, inv.Taxed5, inv.Exempt
 	if totalOnlyTypes[inv.Type] {
 		taxed10, taxed5, exempt = 0, 0, 0
 	}
 
-	fields := []string{
+	return []string{
 		recordTypePurchase,           // 1  código tipo de registro
 		identificationRUC,            // 2  tipo de identificación del proveedor
 		rucBase(inv.IssuerRUC),       // 3  RUC del proveedor sin DV
@@ -194,7 +181,6 @@ func purchaseRow(inv invoice.Invoice, s Settings) string {
 		"",                           // 19 número de comprobante asociado (solo notas de crédito/débito)
 		"",                           // 20 timbrado del comprobante asociado
 	}
-	return strings.Join(fields, fieldSeparator)
 }
 
 // rucBase quita el dígito verificador: "80024627-6" → "80024627".
