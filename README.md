@@ -86,6 +86,9 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 
 ## Cómo se usa
 
+En Telegram, tocá **Menú** junto al campo de mensaje para elegir un comando. El bot registra
+esas opciones automáticamente al arrancar.
+
 1. Mandás la foto de la factura.
 2. El bot la lee y te la muestra con tres botones:
 

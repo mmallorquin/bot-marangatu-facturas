@@ -232,4 +232,13 @@ func TestExportExplainsWhenEveryInvoiceWasSkipped(t *testing.T) {
 	if !strings.Contains(got, marangatu.ReasonElectronic) || len(h.telegram.byMethod("sendDocument")) != 0 {
 		t.Errorf("respuesta = %q", got)
 	}
+	for _, explanation := range []string{"1 comprobante guardado", "ZIP", "/resumen"} {
+		if !strings.Contains(got, explanation) {
+			t.Errorf("no explica %q en la respuesta: %q", explanation, got)
+		}
+	}
+	summary, err := h.store.MonthSummary(context.Background(), testChatID, "2026-09")
+	if err != nil || summary.Count != 1 {
+		t.Errorf("la factura electrónica debe seguir guardada: %+v, %v", summary, err)
+	}
 }

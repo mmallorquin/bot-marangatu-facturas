@@ -187,7 +187,13 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 	}
 	preview, err := marangatu.PreviewPurchases(invoices, settings, period)
 	if errors.Is(err, marangatu.ErrNothingToExport) {
-		h.send(ctx, b, chatID, "No hay facturas para importar de "+periodTitle(period)+".\n"+formatSkipped(preview.Skipped), nil)
+		noun := "comprobantes guardados"
+		if len(invoices) == 1 {
+			noun = "comprobante guardado"
+		}
+		message := fmt.Sprintf("📋 %s\n\nTenés %d %s, pero ninguno entra en el ZIP.\n\n%s\n\nSiguen guardados y aparecen en /resumen.",
+			periodTitle(period), len(invoices), noun, formatSkipped(preview.Skipped))
+		h.send(ctx, b, chatID, message, nil)
 		return
 	}
 	if err != nil {
