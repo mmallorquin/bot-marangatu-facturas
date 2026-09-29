@@ -31,7 +31,7 @@ manejar tus credenciales.
 - [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
 - [x] **Etapa 3 — Confirmación:** guardar, corregir o descartar cada factura desde el chat
 - [x] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
-- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre como servicio en la Mac; falta un servidor)
+- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre en Oracle como `bot-marangatu`; falta validar la importación y probar con usuarios)
 - [ ] **Etapa 6 — WhatsApp:** sumar WhatsApp como segundo canal
 - [ ] **Futuro:** carga automática en Marangatu
 
@@ -125,6 +125,9 @@ Las facturas se guardan en `data/facturas.db` (SQLite, en `.gitignore`), separad
 También se guarda lo que leyó la IA antes de tus correcciones, para medir qué tan bien lee cada modelo.
 
 ## Dejarlo corriendo en tu Mac
+
+Para alojarlo en Oracle como servicio Linux `bot-marangatu`, ver
+[docs/deploy-oracle.md](docs/deploy-oracle.md). Ejecutar una sola instancia con el mismo token.
 
 En vez de `go run`, el bot puede correr como servicio de macOS (launchd):
 arranca solo al iniciar sesión, se reinicia si se cae y no necesita una terminal abierta.
