@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -43,6 +44,31 @@ func TestExportCaptionListsSkippedInvoices(t *testing.T) {
 		if !strings.Contains(caption, want) {
 			t.Errorf("falta %q en:\n%s", want, caption)
 		}
+	}
+}
+
+func TestFormatExportPreviewLimitsTheChatListAndExplainsSkippedInvoices(t *testing.T) {
+	preview := marangatu.Preview{Period: "2026-09", Total: 1_650_000}
+	for i := 1; i <= 11; i++ {
+		inv := sampleInvoice()
+		inv.Number = fmt.Sprintf("001-001-%07d", i)
+		inv.IssuerName = fmt.Sprintf("Proveedor %d", i)
+		preview.Invoices = append(preview.Invoices, inv)
+	}
+	preview.Skipped = []marangatu.Skipped{{Number: "001-001-0000099", Reason: marangatu.ReasonElectronic}}
+
+	text := formatExportPreview("2026-09", preview, store.Imputations{IVA: true, IRP: true})
+
+	for _, want := range []string{
+		"Previa", "Septiembre 2026", "11 comprobantes", "1.650.000 Gs", "IVA, IRP-RSP",
+		"Proveedor 1", "001-001-0000010", "1 más", "001-001-0000099", marangatu.ReasonElectronic,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("falta %q en:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Proveedor 11") {
+		t.Errorf("la previa del chat debería limitarse a 10 filas:\n%s", text)
 	}
 }
 
@@ -94,7 +120,7 @@ func TestRUCCommandValidatesAndNormalizes(t *testing.T) {
 	}
 }
 
-func TestExportSendsTheZipFileForMarangatu(t *testing.T) {
+func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
 	h.saveOneInvoice(t)
@@ -104,15 +130,47 @@ func TestExportSendsTheZipFileForMarangatu(t *testing.T) {
 	// Act
 	h.sendText("/exportar")
 
-	// Assert
+	// Assert: primero muestra exactamente qué se va a exportar.
+	preview := h.telegram.lastSent(t)
+	for _, want := range []string{
+		"Previa", "Septiembre 2026", "1 comprobante", "Comercial Ejemplo S.A.",
+		"80000519-8", "001-001-0001234", "150.000", "IVA, IRP-RSP",
+	} {
+		if !strings.Contains(preview.text, want) {
+			t.Errorf("falta %q en la previa:\n%s", want, preview.text)
+		}
+	}
+	for _, callbackData := range []string{"x:c:2026-09", "x:e:2026-09", "x:z:2026-09", "x:n:2026-09"} {
+		if !strings.Contains(preview.markup, callbackData) {
+			t.Errorf("falta el botón %q en %s", callbackData, preview.markup)
+		}
+	}
+	if docs := h.telegram.byMethod("sendDocument"); len(docs) != 0 {
+		t.Fatalf("la previa no debe enviar archivos: %+v", docs)
+	}
+
+	// Act: descargar los formatos de revisión no consume V0001.
+	h.pressRaw("x:c:2026-09")
+	h.pressRaw("x:e:2026-09")
+	h.pressRaw("x:z:2026-09")
+
+	// Assert: CSV, Excel y finalmente el ZIP oficial V0001.
 	docs := h.telegram.byMethod("sendDocument")
-	if len(docs) != 1 {
-		t.Fatalf("se esperaba un archivo, hubo %d", len(docs))
+	if len(docs) != 3 {
+		t.Fatalf("se esperaban CSV, Excel y ZIP; hubo %d", len(docs))
 	}
-	if docs[0].fileName != "80024627_REG_092026_V0001.zip" || !strings.Contains(docs[0].text, "1 comprobante") {
-		t.Errorf("archivo = %q, texto = %q", docs[0].fileName, docs[0].text)
+	if docs[0].fileName != "80024627_PREVIA_092026.csv" {
+		t.Errorf("CSV = %q", docs[0].fileName)
 	}
-	r, err := zip.NewReader(bytes.NewReader(docs[0].fileData), int64(len(docs[0].fileData)))
+	if docs[1].fileName != "80024627_PREVIA_092026.xlsx" {
+		t.Errorf("Excel = %q", docs[1].fileName)
+	}
+	if docs[2].fileName != "80024627_REG_092026_V0001.zip" || !strings.Contains(docs[2].text, "1 comprobante") {
+		t.Errorf("ZIP = %q, texto = %q", docs[2].fileName, docs[2].text)
+	}
+
+	// El ZIP conserva el formato oficial.
+	r, err := zip.NewReader(bytes.NewReader(docs[2].fileData), int64(len(docs[2].fileData)))
 	if err != nil || len(r.File) != 1 {
 		t.Fatalf("ZIP inválido: %v", err)
 	}
@@ -122,9 +180,28 @@ func TestExportSendsTheZipFileForMarangatu(t *testing.T) {
 		t.Errorf("contenido = %q", content)
 	}
 
+	// Una nueva confirmación recién consume V0002.
 	h.sendText("/exportar")
-	if second := h.telegram.byMethod("sendDocument"); len(second) != 2 || second[1].fileName != "80024627_REG_092026_V0002.zip" {
+	h.pressRaw("x:z:2026-09")
+	if second := h.telegram.byMethod("sendDocument"); len(second) != 4 || second[3].fileName != "80024627_REG_092026_V0002.zip" {
 		t.Errorf("la segunda exportación debería ser V0002: %+v", second)
+	}
+}
+
+func TestExportPreviewCanBeCancelledWithoutSendingAFile(t *testing.T) {
+	h := newHarness(t)
+	h.saveOneInvoice(t)
+	h.sendText("/ruc 80024627-6")
+	h.sendText("/imputar iva")
+	h.sendText("/exportar")
+
+	h.pressRaw("x:n:2026-09")
+
+	if docs := h.telegram.byMethod("sendDocument"); len(docs) != 0 {
+		t.Errorf("cancelar no debería enviar archivos: %+v", docs)
+	}
+	if edits := h.telegram.byMethod("editMessageText"); len(edits) == 0 || !strings.Contains(edits[len(edits)-1].text, "cancelada") {
+		t.Errorf("ediciones = %+v", edits)
 	}
 }
 

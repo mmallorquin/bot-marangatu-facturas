@@ -20,7 +20,7 @@ timbrado, número y montos, lleva horas y genera errores.
 2. El bot extrae los datos: RUC y razón social del emisor, timbrado, número, fecha, condición,
    gravadas 10 % y 5 %, exentas, IVA y total.
 3. Te los muestra para que confirmes o corrijas.
-4. Con `/exportar` te genera el consolidado del mes en el formato de importación de Marangatu.
+4. Con `/exportar` ves la previa del mes, podés revisarla en CSV o Excel y confirmás el ZIP para Marangatu.
 
 El bot **no se conecta a tu cuenta de Marangatu**: vos subís el archivo. Así no tiene que
 manejar tus credenciales.
@@ -101,7 +101,7 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 |---|---|
 | `/resumen` | Facturas guardadas este mes, con IVA y total |
 | `/resumen 08/2026` | Lo mismo para otro mes |
-| `/exportar` | Arma el archivo del mes para importar en Marangatu |
+| `/exportar` | Muestra la previa del mes y permite descargar o generar el ZIP |
 | `/exportar 08/2026` | Lo mismo para otro mes |
 | `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |
 | `/imputar iva irp` | A qué impuestos imputás tus compras: `iva`, `ire`, `irp` |
@@ -110,8 +110,13 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 ### Exportar a Marangatu
 
 1. La primera vez: `/ruc 1234567-8` y `/imputar iva` (o los impuestos que correspondan).
-2. `/exportar` te manda un ZIP como `1234567_REG_092026_V0001.zip`.
-3. Subilo en Marangatu, en la importación del Registro de Comprobantes.
+2. `/exportar` muestra cuántos comprobantes entrarán, el total, las imputaciones y las primeras 10 filas.
+3. Si querés revisar todo, descargá el CSV o Excel. Estos archivos tienen encabezados y son solo de revisión.
+4. Tocá **Generar ZIP** para recibir el archivo oficial, por ejemplo `1234567_REG_092026_V0001.zip`.
+5. Subí únicamente ese ZIP en Marangatu, en la importación del Registro de Comprobantes.
+
+La numeración `V0001`, `V0002`… avanza únicamente al confirmar la generación del ZIP; descargar
+CSV o Excel no la consume.
 
 Las facturas electrónicas (con CDC) no van en el archivo: Marangatu las trae solo.
 El formato está documentado en [docs/rg90-compras.md](docs/rg90-compras.md).
