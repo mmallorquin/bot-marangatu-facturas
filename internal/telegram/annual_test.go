@@ -3,6 +3,7 @@ package telegram
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // saveInvoiceOf lee y guarda una factura con esa fecha y número.
@@ -81,5 +82,14 @@ func TestAnnualSummary(t *testing.T) {
 
 	if text := h.telegram.lastSent(t).text; !strings.Contains(text, "2026: 2 facturas") || !strings.Contains(text, "300.000") {
 		t.Errorf("resumen anual = %q", text)
+	}
+}
+
+func TestAnnualYearToFileSuggestsLastYearUntilFebruary(t *testing.T) {
+	cases := map[time.Month]string{time.January: "2026", time.February: "2026", time.March: "2027", time.December: "2027"}
+	for month, want := range cases {
+		if got := annualYearToFile(time.Date(2027, month, 15, 0, 0, 0, 0, time.UTC)); got != want {
+			t.Errorf("%s 2027: sugiere %s, se esperaba %s", month, got, want)
+		}
 	}
 }
