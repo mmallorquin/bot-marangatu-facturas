@@ -14,7 +14,7 @@ import (
 // Tipos de evento. Sirven para medir cómo se usa el bot durante la beta.
 const (
 	EventStart           = "start"
-	EventPhoto           = "foto"           // llegó una imagen que el bot puede leer
+	EventPhoto           = "foto"           // llegó una imagen o PDF que el bot puede leer; detalle: imagen | pdf
 	EventPhotoRejected   = "foto_rechazada" // detalle: formato | tamano
 	EventRead            = "lectura"        // detalle: ok | avisos
 	EventNotInvoice      = "no_factura"     // la IA dijo que la imagen no es un comprobante
@@ -23,6 +23,8 @@ const (
 	EventDuplicate       = "duplicada"      // quiso guardar una factura que ya tenía
 	EventSaveBlocked     = "guardar_bloqueado"
 	EventDiscarded       = "descartada"
+	EventList            = "facturas"            // usó /facturas
+	EventDeleted         = "borrada"             // sacó una factura ya guardada
 	EventCorrection      = "correccion"          // detalle: campo corregido
 	EventBadCorrection   = "correccion_invalida" // detalle: campo
 	EventCancel          = "cancelar"
@@ -43,6 +45,8 @@ const (
 	EventDetailSize      = "tamano"
 	EventDetailCSV       = "csv"
 	EventDetailExcel     = "excel"
+	EventDetailImage     = "imagen"
+	EventDetailPDF       = "pdf"
 )
 
 // Un borrador sin guardar ni descartar después de este tiempo se cuenta como abandonado.
@@ -104,6 +108,7 @@ type Metrics struct {
 
 	// Embudo de una foto
 	Photos     int
+	PDFs       int // de Photos, cuántos fueron PDF
 	Rejected   int
 	ReadOK     int // factura leída sin avisos
 	ReadIssues int // factura leída con avisos de validación
@@ -112,6 +117,7 @@ type Metrics struct {
 	Saved      int
 	SavedClean int // guardadas sin ninguna corrección
 	Discarded  int
+	Deleted    int // guardadas que después se borraron con /facturas
 	Duplicates int
 	Blocked    int // intentos de guardar con datos que no cierran
 	Abandoned  int // borradores del período sin guardar ni descartar después de 24 h
@@ -127,6 +133,7 @@ type Metrics struct {
 
 	// Otros comandos y fricción
 	Summaries      int
+	Lists          int
 	ExportPreviews int
 	ExportReviews  int
 	ExportZIPs     int
@@ -265,6 +272,9 @@ func addEvent(m *Metrics, kind, detail string, count int) {
 	switch kind {
 	case EventPhoto:
 		m.Photos += count
+		if detail == EventDetailPDF {
+			m.PDFs += count
+		}
 	case EventPhotoRejected:
 		m.Rejected += count
 	case EventRead:
@@ -284,6 +294,10 @@ func addEvent(m *Metrics, kind, detail string, count int) {
 		}
 	case EventDiscarded:
 		m.Discarded += count
+	case EventDeleted:
+		m.Deleted += count
+	case EventList:
+		m.Lists += count
 	case EventDuplicate:
 		m.Duplicates += count
 	case EventSaveBlocked:

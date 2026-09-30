@@ -65,12 +65,31 @@ func (s *Store) SetImputations(ctx context.Context, chatID int64, imp Imputation
 // SavedInvoices devuelve las facturas guardadas del chat en el período: un mes (AAAA-MM)
 // o un año entero (AAAA). Van mes por mes y, dentro de cada mes, en el orden en que se leyeron.
 func (s *Store) SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error) {
+	saved, err := s.SavedRecords(ctx, chatID, period)
+	if err != nil {
+		return nil, err
+	}
+	invoices := make([]invoice.Invoice, len(saved))
+	for i, rec := range saved {
+		invoices[i] = rec.Invoice
+	}
+	return invoices, nil
+}
+
+// SavedRecord es una factura guardada con su ID, para poder borrarla.
+type SavedRecord struct {
+	ID      int64
+	Invoice invoice.Invoice
+}
+
+// SavedRecords es como SavedInvoices pero con el ID de cada factura.
+func (s *Store) SavedRecords(ctx context.Context, chatID int64, period string) ([]SavedRecord, error) {
 	first, last := period, period
 	if len(period) == len("2006") {
 		first, last = period+"-01", period+"-12"
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT invoice_json FROM invoices
+		SELECT id, invoice_json FROM invoices
 		WHERE chat_id = ? AND status = ? AND period BETWEEN ? AND ? ORDER BY period, id`,
 		chatID, StatusSaved, first, last)
 	if err != nil {
@@ -78,19 +97,21 @@ func (s *Store) SavedInvoices(ctx context.Context, chatID int64, period string) 
 	}
 	defer rows.Close()
 
-	var invoices []invoice.Invoice
+	var saved []SavedRecord
 	for rows.Next() {
-		var data string
-		if err := rows.Scan(&data); err != nil {
+		var (
+			rec  SavedRecord
+			data string
+		)
+		if err := rows.Scan(&rec.ID, &data); err != nil {
 			return nil, fmt.Errorf("leyendo las facturas: %w", err)
 		}
-		var inv invoice.Invoice
-		if err := json.Unmarshal([]byte(data), &inv); err != nil {
+		if err := json.Unmarshal([]byte(data), &rec.Invoice); err != nil {
 			return nil, fmt.Errorf("leyendo una factura: %w", err)
 		}
-		invoices = append(invoices, inv)
+		saved = append(saved, rec)
 	}
-	return invoices, rows.Err()
+	return saved, rows.Err()
 }
 
 // NextExportSeq devuelve el siguiente número de archivo del período (1, 2, 3...).

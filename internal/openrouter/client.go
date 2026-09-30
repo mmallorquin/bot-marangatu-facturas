@@ -29,6 +29,9 @@ const (
 	appTitle = "bot-marangatu-facturas"
 
 	userInstruction = "Extraé los datos de este comprobante."
+
+	pdfMimeType = "application/pdf"
+	pdfFileName = "factura.pdf"
 )
 
 var (
@@ -80,7 +83,7 @@ func New(opts Options) *Client {
 	return &Client{opts: opts, http: &http.Client{Timeout: requestTimeout}}
 }
 
-// Read envía la imagen al modelo y devuelve la factura que leyó.
+// Read envía la imagen o el PDF al modelo y devuelve la factura que leyó.
 func (c *Client) Read(ctx context.Context, img reader.Image) (reader.Result, error) {
 	payload, err := json.Marshal(c.buildRequest(img))
 	if err != nil {
@@ -126,7 +129,7 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: []contentPart{
 				{Type: "text", Text: userInstruction},
-				{Type: "image_url", ImageURL: &imageURL{URL: dataURL}},
+				attachment(img.MimeType, dataURL),
 			}},
 		},
 		ResponseFormat: responseFormat{
@@ -136,6 +139,14 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 		Provider:  providerPrefs{DataCollection: "deny", ZDR: c.opts.ZDR, RequireParameters: true},
 		Reasoning: effort,
 	}
+}
+
+// attachment arma la parte del mensaje con el comprobante: un PDF va como archivo y una foto como imagen.
+func attachment(mimeType, dataURL string) contentPart {
+	if mimeType == pdfMimeType {
+		return contentPart{Type: "file", File: &fileData{Filename: pdfFileName, FileData: dataURL}}
+	}
+	return contentPart{Type: "image_url", ImageURL: &imageURL{URL: dataURL}}
 }
 
 func parseAPIError(status int, body []byte) error {

@@ -13,6 +13,7 @@ import (
 func ConfigureMenu(ctx context.Context, b *bot.Bot) error {
 	_, commandsErr := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{Commands: []models.BotCommand{
 		{Command: "resumen", Description: "Ver las facturas y el total de este mes"},
+		{Command: "facturas", Description: "Ver las facturas guardadas y borrar las que sobran"},
 		{Command: "exportar", Description: "Revisar las facturas y generar el ZIP"},
 		{Command: "ruc", Description: "Consultar o configurar tu RUC"},
 		{Command: "imputar", Description: "Elegir impuestos: IVA, IRE o IRP"},

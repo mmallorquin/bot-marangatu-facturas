@@ -24,6 +24,7 @@ const (
 	StatusDraft     Status = "borrador"   // leída, esperando que el usuario la confirme
 	StatusSaved     Status = "guardada"   // confirmada: entra en el resumen y la exportación
 	StatusDiscarded Status = "descartada" // el usuario la descartó
+	StatusDeleted   Status = "borrada"    // estaba guardada y el usuario la sacó con /facturas
 )
 
 const (
@@ -35,6 +36,7 @@ var (
 	ErrNotFound  = errors.New("factura no encontrada")
 	ErrNotDraft  = errors.New("la factura ya fue guardada o descartada")
 	ErrDuplicate = errors.New("esa factura ya está guardada")
+	ErrNotSaved  = errors.New("la factura no está guardada")
 )
 
 const schema = `
@@ -262,6 +264,29 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 			WHERE id = ?`, StatusSaved, data, key, periodOf(inv.Date), timestamp(), id)
 		return err
 	})
+}
+
+// DeleteSaved saca una factura guardada del chat: deja de aparecer en /resumen y en la exportación.
+// No se elimina de la base (sigue contando en las métricas) y la misma factura se puede volver a guardar.
+func (s *Store) DeleteSaved(ctx context.Context, chatID, id int64) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE invoices SET status = ?, updated_at = ? WHERE id = ? AND chat_id = ? AND status = ?`,
+		StatusDeleted, timestamp(), id, chatID, StatusSaved)
+	if err != nil {
+		return fmt.Errorf("borrando la factura: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM invoices WHERE id = ? AND chat_id = ?)`,
+		id, chatID).Scan(&exists); err != nil {
+		return fmt.Errorf("buscando la factura: %w", err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return ErrNotSaved
 }
 
 // Discard descarta un borrador.

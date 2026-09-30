@@ -237,3 +237,26 @@ func TestSchemaListsEveryInvoiceField(t *testing.T) {
 			len(schema.Properties), len(schema.Required), len(asMap))
 	}
 }
+
+func TestReadSendsPDFAsFile(t *testing.T) {
+	// Arrange
+	var captured capturedRequest
+	client := newTestClient(t, http.StatusOK, fakeChatResponse(invoiceJSON, "stop"), &captured)
+	pdf := reader.Image{Data: []byte("%PDF-1.7 factura"), MimeType: "application/pdf"}
+
+	// Act
+	if _, err := client.Read(context.Background(), pdf); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	// Assert
+	raw, _ := json.Marshal(captured.body["messages"])
+	wantFile := `{"file":{"file_data":"data:application/pdf;base64,` + base64.StdEncoding.EncodeToString(pdf.Data) +
+		`","filename":"factura.pdf"},"type":"file"}`
+	if !strings.Contains(string(raw), wantFile) {
+		t.Errorf("el PDF no se envió como archivo:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "image_url") {
+		t.Errorf("un PDF no debería ir como imagen:\n%s", raw)
+	}
+}

@@ -32,6 +32,8 @@ type InvoiceStore interface {
 	ClearAwaiting(ctx context.Context, chatID int64) error
 	MonthSummary(ctx context.Context, chatID int64, period string) (store.Summary, error)
 	SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error)
+	SavedRecords(ctx context.Context, chatID int64, period string) ([]store.SavedRecord, error)
+	DeleteSaved(ctx context.Context, chatID, id int64) error
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -84,7 +86,11 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 		h.track(ctx, chatID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailSize})
 		h.send(ctx, b, chatID, TooLargeMessage, nil)
 	case imageSupported:
-		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto})
+		detail := store.EventDetailImage
+		if file.mimeType == pdfMimeType {
+			detail = store.EventDetailPDF
+		}
+		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto, Detail: detail})
 		h.send(ctx, b, chatID, ReadingMessage, nil)
 		h.processImage(ctx, b, chatID, file)
 	}
@@ -112,6 +118,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case exportCommand:
 		h.exportMonth(ctx, b, chatID, text)
+		return
+	case listCommand:
+		h.listInvoices(ctx, b, chatID, text)
 		return
 	}
 
@@ -247,6 +256,7 @@ var commandEvents = map[string]string{
 	rucCommand:     store.EventRUC,
 	imputeCommand:  store.EventImpute,
 	exportCommand:  store.EventExportPreview,
+	listCommand:    store.EventList,
 }
 
 // readEvent describe el resultado de una lectura, sin datos de la factura.

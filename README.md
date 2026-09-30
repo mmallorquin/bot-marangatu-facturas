@@ -16,7 +16,7 @@ timbrado, número y montos, lleva horas y genera errores.
 📸 Foto de la factura ──► 🤖 Bot de Telegram ──► 🧠 IA lee los datos ──► 📊 Planilla lista para importar en Marangatu
 ```
 
-1. Le sacás una foto a la factura y se la mandás al bot.
+1. Le sacás una foto a la factura (o reenviás el PDF) y se la mandás al bot.
 2. El bot extrae los datos: RUC y razón social del emisor, timbrado, número, fecha, condición,
    gravadas 10 % y 5 %, exentas, IVA y total.
 3. Te los muestra para que confirmes o corrijas.
@@ -90,7 +90,7 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 En Telegram, tocá **Menú** junto al campo de mensaje para elegir un comando. El bot registra
 esas opciones automáticamente al arrancar.
 
-1. Mandás la foto de la factura.
+1. Mandás la foto de la factura o el PDF.
 2. El bot la lee y te la muestra con tres botones:
 
    ```
@@ -105,6 +105,8 @@ esas opciones automáticamente al arrancar.
 |---|---|
 | `/resumen` | Facturas guardadas este mes, con IVA y total |
 | `/resumen 08/2026` | Lo mismo para otro mes |
+| `/facturas` | Lista las facturas guardadas del mes y permite borrar las guardadas por error |
+| `/facturas 08/2026` | Lo mismo para otro mes (o `/facturas 2026` para el año) |
 | `/exportar` | Muestra la previa del mes y permite descargar o generar el ZIP |
 | `/exportar 08/2026` | Lo mismo para otro mes |
 | `/exportar 2026` | Archivo del año entero, para quien presenta el IRP-RSP en forma anual |

@@ -225,3 +225,50 @@ func TestOpenCreatesFolderAndCanBeReopened(t *testing.T) {
 		t.Errorf("los datos no persistieron: %v", err)
 	}
 }
+
+func TestDeleteSavedRemovesItFromSummariesAndAllowsSavingAgain(t *testing.T) {
+	// Arrange
+	s := openTestStore(t)
+	ctx := context.Background()
+	inv := sampleInvoice("001-001-0000001", 110_000)
+	id, _ := s.CreateDraft(ctx, chatA, newDraft(inv))
+	if err := s.Save(ctx, chatA, id); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	otherChat := s.DeleteSaved(ctx, chatB, id)
+	err := s.DeleteSaved(ctx, chatA, id)
+	again := s.DeleteSaved(ctx, chatA, id)
+
+	// Assert
+	if !errors.Is(otherChat, ErrNotFound) {
+		t.Errorf("otro chat no puede borrarla: %v", otherChat)
+	}
+	if err != nil {
+		t.Fatalf("DeleteSaved: %v", err)
+	}
+	if !errors.Is(again, ErrNotSaved) {
+		t.Errorf("borrar dos veces = %v", again)
+	}
+	if saved, _ := s.SavedRecords(ctx, chatA, "2026-09"); len(saved) != 0 {
+		t.Errorf("sigue en la lista: %+v", saved)
+	}
+	id2, _ := s.CreateDraft(ctx, chatA, newDraft(inv))
+	if err := s.Save(ctx, chatA, id2); err != nil {
+		t.Errorf("debería poder volver a guardarla: %v", err)
+	}
+	if saved, _ := s.SavedRecords(ctx, chatA, "2026"); len(saved) != 1 || saved[0].ID != id2 {
+		t.Errorf("SavedRecords = %+v", saved)
+	}
+}
+
+func TestDeleteSavedRejectsDrafts(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	id, _ := s.CreateDraft(ctx, chatA, newDraft(sampleInvoice("001-001-0000001", 110_000)))
+
+	if err := s.DeleteSaved(ctx, chatA, id); !errors.Is(err, ErrNotSaved) {
+		t.Errorf("un borrador no se borra con DeleteSaved: %v", err)
+	}
+}

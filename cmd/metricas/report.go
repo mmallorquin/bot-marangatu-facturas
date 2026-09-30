@@ -29,13 +29,14 @@ func formatReport(m store.Metrics, days, excluded int, perUser bool) string {
 
 	read := m.ReadOK + m.ReadIssues + m.NotInvoice + m.ReadErrors
 	section(&b, "📸 Embudo")
-	line(&b, "Fotos recibidas", "%d (+%d rechazadas por formato o tamaño)", m.Photos, m.Rejected)
+	line(&b, "Fotos y PDF recibidos", "%d, %d en PDF (+%d rechazados por formato o tamaño)", m.Photos, m.PDFs, m.Rejected)
 	line(&b, "Leídas sin avisos", "%d %s", m.ReadOK, pct(m.ReadOK, read))
 	line(&b, "Leídas con avisos", "%d %s", m.ReadIssues, pct(m.ReadIssues, read))
 	line(&b, "No era factura", "%d %s", m.NotInvoice, pct(m.NotInvoice, read))
 	line(&b, "Errores de lectura", "%d %s", m.ReadErrors, pct(m.ReadErrors, read))
 	line(&b, "Guardadas", "%d", m.Saved)
 	line(&b, "Descartadas", "%d", m.Discarded)
+	line(&b, "Borradas tras guardar", "%d", m.Deleted)
 	line(&b, "Abandonadas (+24 h)", "%d", m.Abandoned)
 	line(&b, "Duplicadas", "%d", m.Duplicates)
 	line(&b, "Guardar bloqueado", "%d (datos que no cierran)", m.Blocked)
@@ -61,6 +62,7 @@ func formatReport(m store.Metrics, days, excluded int, perUser bool) string {
 
 	section(&b, "🧭 Funciones")
 	line(&b, "/resumen", "%d", m.Summaries)
+	line(&b, "/facturas", "%d", m.Lists)
 	line(&b, "/exportar", "%d", m.ExportPreviews)
 	line(&b, "CSV o Excel", "%d", m.ExportReviews)
 	line(&b, "ZIP", "%d", m.ExportZIPs)

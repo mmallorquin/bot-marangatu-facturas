@@ -31,6 +31,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleExportCallback(ctx, b, query, msg)
 		return
 	}
+	if strings.HasPrefix(query.Data, listCallbackPrefix+":") {
+		h.handleListCallback(ctx, b, query, msg)
+		return
+	}
 	c, err := parseCallback(query.Data)
 	if err != nil {
 		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
