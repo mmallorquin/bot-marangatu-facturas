@@ -140,15 +140,20 @@ func (s *Store) Close() error {
 
 // CreateDraft guarda una factura recién leída y devuelve su ID.
 func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, error) {
-	data, err := json.Marshal(d.Invoice)
+	original, err := json.Marshal(d.Invoice)
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura: %w", err)
+	}
+	d.Invoice.Number = invoice.NormalizeNumber(d.Invoice.Number)
+	data, err := json.Marshal(d.Invoice)
+	if err != nil {
+		return 0, fmt.Errorf("serializando la factura normalizada: %w", err)
 	}
 	now := timestamp()
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		chatID, StatusDraft, data, data, d.Model, d.CostUSD, now, now)
+		chatID, StatusDraft, data, original, d.Model, d.CostUSD, now, now)
 	if err != nil {
 		return 0, fmt.Errorf("guardando el borrador: %w", err)
 	}
@@ -177,6 +182,8 @@ func (s *Store) Get(ctx context.Context, chatID, id int64) (Record, error) {
 	if err := json.Unmarshal([]byte(originJSON), &rec.Original); err != nil {
 		return Record{}, fmt.Errorf("leyendo la lectura original: %w", err)
 	}
+	// También permite revisar borradores creados antes de la normalización.
+	rec.Invoice.Number = invoice.NormalizeNumber(rec.Invoice.Number)
 	return rec, nil
 }
 
@@ -201,6 +208,11 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 		if err != nil {
 			return err
 		}
+		inv.Number = invoice.NormalizeNumber(inv.Number)
+		data, err := json.Marshal(inv)
+		if err != nil {
+			return fmt.Errorf("serializando la factura normalizada: %w", err)
+		}
 		key := dedupKey(inv)
 
 		var exists bool
@@ -215,8 +227,8 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 		}
 
 		_, err = tx.ExecContext(ctx, `
-			UPDATE invoices SET status = ?, dedup_key = ?, period = ?, awaiting_field = NULL, updated_at = ?
-			WHERE id = ?`, StatusSaved, key, periodOf(inv.Date), timestamp(), id)
+			UPDATE invoices SET status = ?, invoice_json = ?, dedup_key = ?, period = ?, awaiting_field = NULL, updated_at = ?
+			WHERE id = ?`, StatusSaved, data, key, periodOf(inv.Date), timestamp(), id)
 		return err
 	})
 }

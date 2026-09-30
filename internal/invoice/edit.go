@@ -27,7 +27,7 @@ var dateInputLayouts = []string{dateLayout, "2/1/2006", "2-1-2006"}
 
 var (
 	onlyDigits      = regexp.MustCompile(`^\d+$`)
-	numberParts     = regexp.MustCompile(`^(\d{1,3})-(\d{1,3})-(\d{1,7})$`)
+	numberParts     = regexp.MustCompile(`^(\d{1,3})-(\d{1,3})-(\d+)$`)
 	amountNoise     = strings.NewReplacer(".", "", ",", "", " ", "", "Gs", "", "gs", "", "GS", "", "₲", "")
 	whitespaceNoise = strings.NewReplacer(" ", "", "\t", "")
 )
@@ -49,7 +49,7 @@ func Edit(inv Invoice, field, raw string) (Invoice, error) {
 	case FieldTimbrado:
 		edited.Timbrado = whitespaceNoise.Replace(raw)
 	case FieldNumber:
-		edited.Number = normalizeNumber(raw)
+		edited.Number = NormalizeNumber(raw)
 	case FieldDate:
 		edited.Date, err = parseDate(raw)
 	case FieldCondition:
@@ -91,14 +91,19 @@ func NormalizeRUC(raw string) string {
 	return ruc
 }
 
-// normalizeNumber completa con ceros: 1-1-1234 → 001-001-0001234.
-func normalizeNumber(raw string) string {
-	number := whitespaceNoise.Replace(raw)
+// NormalizeNumber completa con ceros y elimina solo ceros sobrantes del correlativo.
+// Si quedan más de 7 dígitos significativos, conserva el número para su revisión.
+func NormalizeNumber(raw string) string {
+	number := whitespaceNoise.Replace(strings.TrimSpace(raw))
 	parts := numberParts.FindStringSubmatch(number)
 	if parts == nil {
 		return number
 	}
-	return fmt.Sprintf("%03s-%03s-%07s", parts[1], parts[2], parts[3])
+	serial := strings.TrimLeft(parts[3], "0")
+	if len(serial) > 7 {
+		return number
+	}
+	return fmt.Sprintf("%03s-%03s-%07s", parts[1], parts[2], serial)
 }
 
 func parseDate(raw string) (string, error) {
