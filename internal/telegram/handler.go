@@ -34,6 +34,15 @@ type InvoiceStore interface {
 	SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error)
 	SavedRecords(ctx context.Context, chatID int64, period string) ([]store.SavedRecord, error)
 	DeleteSaved(ctx context.Context, chatID, id int64) error
+	IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error)
+	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
+	Unsave(ctx context.Context, chatID, id int64) error
+	SetAutoSave(ctx context.Context, chatID int64, on bool) error
+	SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error
+	DeleteChat(ctx context.Context, chatID int64) (int, error)
+	SetReminders(ctx context.Context, chatID int64, on bool) error
+	ReminderCandidates(ctx context.Context, period string) ([]store.ReminderCandidate, error)
+	MarkReminded(ctx context.Context, chatID int64, period string) error
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -55,13 +64,14 @@ func NewHandler(deps Deps) bot.HandlerFunc {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	h := &handler{deps: deps, logger: deps.Logger}
+	h := &handler{deps: deps, logger: deps.Logger, albums: &albums{}}
 	return h.handle
 }
 
 type handler struct {
 	deps   Deps
 	logger *slog.Logger
+	albums *albums
 }
 
 func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -91,7 +101,12 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 			detail = store.EventDetailPDF
 		}
 		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto, Detail: detail})
-		h.send(ctx, b, chatID, ReadingMessage, nil)
+		switch {
+		case msg.MediaGroupID == "":
+			h.send(ctx, b, chatID, ReadingMessage, nil)
+		case h.albums.first(msg.MediaGroupID, time.Now()):
+			h.send(ctx, b, chatID, ReadingAlbumMessage, nil)
+		}
 		h.processImage(ctx, b, chatID, file)
 	}
 }
@@ -108,7 +123,7 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		h.cancelCorrection(ctx, b, chatID)
 		return
 	case startCommand:
-		h.send(ctx, b, chatID, WelcomeMessage, nil)
+		h.welcome(ctx, b, chatID)
 		return
 	case rucCommand:
 		h.setRUC(ctx, b, chatID, text)
@@ -122,6 +137,18 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 	case listCommand:
 		h.listInvoices(ctx, b, chatID, text)
 		return
+	case pendingCommand:
+		h.showPending(ctx, b, chatID)
+		return
+	case autoSaveCommand:
+		h.setAutoSave(ctx, b, chatID, text)
+		return
+	case remindersCommand:
+		h.setReminders(ctx, b, chatID, text)
+		return
+	case deleteDataCommand:
+		h.askDeleteData(ctx, b, chatID)
+		return
 	}
 
 	pending, found, err := h.deps.Store.Awaiting(ctx, chatID)
@@ -129,6 +156,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		h.logger.Error("no se pudo leer la corrección pendiente", "chat_id", chatID, "error", err)
 	}
 	if !found {
+		if commandOf(text) == "" && h.tryOnboardingRUC(ctx, b, chatID, text) {
+			return
+		}
 		h.track(ctx, chatID, store.Event{Kind: store.EventUnknownText})
 		h.send(ctx, b, chatID, ReplyForText(text), nil)
 		return
@@ -188,7 +218,38 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		h.send(ctx, b, chatID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, FormatInvoice(inv, issues), mainKeyboard(id))
+	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
+		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
+			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
+			h.send(ctx, b, chatID, text+"\n\n"+AutoSavedNote, undoKeyboard(id))
+			return
+		}
+		// Si falla el guardado automático, queda como borrador con los botones de siempre.
+	}
+	h.send(ctx, b, chatID, text, mainKeyboard(id))
+}
+
+func (h *handler) autoSaves(ctx context.Context, chatID int64) bool {
+	cs, err := h.deps.Store.Settings(ctx, chatID)
+	return err == nil && cs.AutoSave
+}
+
+// invoiceMessage es la factura con sus avisos (si ya estaba guardada o si es electrónica)
+// e indica si es un duplicado.
+func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice, issues []invoice.Issue) (string, bool) {
+	text := FormatInvoice(inv, issues)
+	saved, err := h.deps.Store.IsSaved(ctx, chatID, inv)
+	if err != nil {
+		h.logger.Warn("no se pudo buscar duplicados", "chat_id", chatID, "error", err)
+	}
+	if saved {
+		text += "\n\n" + AlreadySavedNote
+	}
+	if inv.CDC != "" {
+		text += "\n\n" + ElectronicNote
+	}
+	return text, saved
 }
 
 func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64, pending store.Pending, text string) {
@@ -214,7 +275,8 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
-	h.send(ctx, b, chatID, FormatInvoice(edited, invoice.Validate(edited)), mainKeyboard(rec.ID))
+	message, _ := h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited))
+	h.send(ctx, b, chatID, message, mainKeyboard(rec.ID))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
@@ -228,6 +290,8 @@ func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 	case found:
 		h.send(ctx, b, chatID, CancelledMessage, nil)
+	case h.stopOnboarding(ctx, chatID):
+		h.send(ctx, b, chatID, "Listo, cargás tu RUC después con /ruc 1234567-8.", nil)
 	default:
 		h.send(ctx, b, chatID, NothingToCancel, nil)
 	}
@@ -250,13 +314,16 @@ func (h *handler) sendSummary(ctx context.Context, b *bot.Bot, chatID int64, tex
 
 // commandEvents es el evento que registra cada comando.
 var commandEvents = map[string]string{
-	startCommand:   store.EventStart,
-	summaryCommand: store.EventSummary,
-	cancelCommand:  store.EventCancel,
-	rucCommand:     store.EventRUC,
-	imputeCommand:  store.EventImpute,
-	exportCommand:  store.EventExportPreview,
-	listCommand:    store.EventList,
+	startCommand:     store.EventStart,
+	summaryCommand:   store.EventSummary,
+	cancelCommand:    store.EventCancel,
+	rucCommand:       store.EventRUC,
+	imputeCommand:    store.EventImpute,
+	exportCommand:    store.EventExportPreview,
+	listCommand:      store.EventList,
+	pendingCommand:   store.EventPending,
+	autoSaveCommand:  store.EventAutoSave,
+	remindersCommand: store.EventReminderSetting,
 }
 
 // readEvent describe el resultado de una lectura, sin datos de la factura.

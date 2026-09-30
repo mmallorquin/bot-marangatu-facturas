@@ -106,7 +106,8 @@ func TestRUCCommandValidatesAndNormalizes(t *testing.T) {
 	h.sendText("/ruc 80024627-1")
 	invalid := h.telegram.lastSent(t).text
 	h.sendText("/ruc 800246276")
-	valid := h.telegram.lastSent(t).text
+	sent := h.telegram.byMethod("sendMessage")
+	valid := sent[len(sent)-2].text // el último mensaje pide los impuestos con botones
 
 	if !strings.Contains(invalid, "❌") {
 		t.Errorf("debería rechazar el RUC inválido: %q", invalid)

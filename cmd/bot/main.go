@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // zona horaria de Paraguay para los recordatorios, aunque el servidor no la tenga
 
 	"github.com/go-telegram/bot"
 	"github.com/joho/godotenv"
@@ -60,13 +61,14 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	})
 
 	token := cfg.TelegramBotToken
+	deps := telegram.Deps{
+		Logger: logger,
+		Token:  token,
+		Reader: invoiceReader,
+		Store:  invoices,
+	}
 	opts := append([]bot.Option{
-		bot.WithDefaultHandler(telegram.NewHandler(telegram.Deps{
-			Logger: logger,
-			Token:  token,
-			Reader: invoiceReader,
-			Store:  invoices,
-		})),
+		bot.WithDefaultHandler(telegram.NewHandler(deps)),
 		bot.WithErrorsHandler(telegram.NewErrorsHandler(logger, token)),
 	}, extraOpts...)
 
@@ -83,6 +85,7 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
 		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,
 		"base", cfg.DatabasePath)
+	go telegram.RunReminders(ctx, b, deps)
 	b.Start(ctx)
 	logger.Info("bot detenido")
 	return nil

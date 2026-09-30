@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS chat_settings (
 	impute_irp INTEGER NOT NULL DEFAULT 0  -- IRP-RSP
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+	chat_id INTEGER NOT NULL,
+	period  TEXT    NOT NULL, -- AAAA-MM o AAAA recordado
+	sent_at TEXT    NOT NULL,
+	PRIMARY KEY (chat_id, period)
+);
+
 CREATE TABLE IF NOT EXISTS exports (
 	chat_id INTEGER NOT NULL,
 	period  TEXT    NOT NULL, -- AAAA-MM
@@ -144,7 +151,36 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("creando las tablas: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+// addedColumns son columnas que se agregaron después de crear la tabla. Las bases existentes
+// las reciben al abrirse, sin perder datos.
+var addedColumns = []struct{ table, column, definition string }{
+	{"chat_settings", "auto_save", "INTEGER NOT NULL DEFAULT 0"},    // guardar solo las que cierran
+	{"chat_settings", "reminders", "INTEGER NOT NULL DEFAULT 1"},    // recordatorio de exportar
+	{"chat_settings", "awaiting_ruc", "INTEGER NOT NULL DEFAULT 0"}, // configuración guiada: el próximo texto es el RUC
+}
+
+func migrate(db *sql.DB) error {
+	for _, c := range addedColumns {
+		var exists bool
+		err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`, c.table, c.column).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("revisando la columna %s.%s: %w", c.table, c.column, err)
+		}
+		if exists {
+			continue
+		}
+		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.definition)); err != nil {
+			return fmt.Errorf("agregando la columna %s.%s: %w", c.table, c.column, err)
+		}
+	}
+	return nil
 }
 
 // OpenReadOnly abre una base existente sin poder modificarla, para consultarla
@@ -264,6 +300,90 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 			WHERE id = ?`, StatusSaved, data, key, periodOf(inv.Date), timestamp(), id)
 		return err
 	})
+}
+
+// Drafts devuelve los borradores del chat (leídos, sin guardar ni descartar), del más viejo al más nuevo.
+func (s *Store) Drafts(ctx context.Context, chatID int64) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM invoices WHERE chat_id = ? AND status = ? ORDER BY id`, chatID, StatusDraft)
+	if err != nil {
+		return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+	}
+
+	drafts := make([]Record, 0, len(ids))
+	for _, id := range ids {
+		rec, err := s.Get(ctx, chatID, id)
+		if err != nil {
+			return nil, err
+		}
+		drafts = append(drafts, rec)
+	}
+	return drafts, nil
+}
+
+// Unsave vuelve una factura guardada a borrador (el "Deshacer" del guardado automático).
+func (s *Store) Unsave(ctx context.Context, chatID, id int64) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE invoices SET status = ?, dedup_key = NULL, period = NULL, updated_at = ?
+		WHERE id = ? AND chat_id = ? AND status = ?`,
+		StatusDraft, timestamp(), id, chatID, StatusSaved)
+	if err != nil {
+		return fmt.Errorf("deshaciendo el guardado: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 1 {
+		return err
+	}
+	return ErrNotSaved
+}
+
+// DeleteChat borra todo lo del chat: facturas, configuración, exportaciones, recordatorios
+// y eventos de uso. Devuelve cuántas facturas (de cualquier estado) se borraron.
+func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("iniciando la transacción: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM invoices WHERE chat_id = ?`, chatID)
+	if err != nil {
+		return 0, fmt.Errorf("borrando las facturas: %w", err)
+	}
+	deleted, _ := res.RowsAffected()
+	for _, table := range []string{"chat_settings", "exports", "reminders", "events"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE chat_id = ?", chatID); err != nil {
+			return 0, fmt.Errorf("borrando %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("confirmando el borrado: %w", err)
+	}
+	return int(deleted), nil
+}
+
+// IsSaved indica si el chat ya guardó esta misma factura (mismo tipo, RUC, timbrado y número).
+func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error) {
+	inv.Number = invoice.NormalizeNumber(inv.Number)
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND dedup_key = ?)`,
+		chatID, StatusSaved, dedupKey(inv)).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("buscando duplicados: %w", err)
+	}
+	return exists, nil
 }
 
 // DeleteSaved saca una factura guardada del chat: deja de aparecer en /resumen y en la exportación.

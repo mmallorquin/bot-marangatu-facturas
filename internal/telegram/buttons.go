@@ -35,12 +35,28 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleListCallback(ctx, b, query, msg)
 		return
 	}
+	if strings.HasPrefix(query.Data, imputeCallbackPrefix+":") {
+		h.handleImputeCallback(ctx, b, query, msg)
+		return
+	}
+	if query.Data == deleteDataConfirm || query.Data == deleteDataCancel {
+		h.handleDeleteData(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}, query.Data)
+		return
+	}
+	if query.Data == pendingSaveCallback {
+		h.saveAllReady(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID})
+		return
+	}
 	c, err := parseCallback(query.Data)
 	if err != nil {
 		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
 		return
 	}
 	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID, callback: c}
+	if c.action == actionUndo {
+		h.undoAutoSave(ctx, b, press)
+		return
+	}
 
 	rec, err := h.deps.Store.Get(ctx, press.chatID, c.id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && rec.Status != store.StatusDraft) {
@@ -88,14 +104,39 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 	default:
 		h.logger.Info("factura guardada", "chat_id", press.chatID, "id", rec.ID, "corregida", rec.Corrected)
-		detail := store.EventDetailClean
-		if rec.Corrected {
-			detail = store.EventDetailCorrected
-		}
-		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: detail})
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: savedDetail(rec.Corrected)})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, noKeyboard())
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
+}
+
+// undoAutoSave vuelve a borrador una factura guardada automáticamente y muestra los botones de siempre.
+func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPress) {
+	err := h.deps.Store.Unsave(ctx, press.chatID, press.callback.id)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotSaved) {
+			h.logger.Error("no se pudo deshacer el guardado", "chat_id", press.chatID, "error", err)
+		}
+		h.answer(ctx, b, press.queryID, NotSavedAnymoreAlert, false)
+		h.editKeyboard(ctx, b, press, noKeyboard())
+		return
+	}
+	h.track(ctx, press.chatID, store.Event{Kind: store.EventUndo})
+	rec, err := h.deps.Store.Get(ctx, press.chatID, press.callback.id)
+	if err != nil {
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, mainKeyboard(rec.ID))
+	h.answer(ctx, b, press.queryID, "", false)
+}
+
+// savedDetail es el detalle del evento de guardado: si el usuario corrigió algo antes.
+func savedDetail(corrected bool) string {
+	if corrected {
+		return store.EventDetailCorrected
+	}
+	return store.EventDetailClean
 }
 
 func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPress) {

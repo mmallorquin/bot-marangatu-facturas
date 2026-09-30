@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"path/filepath"
 	"testing"
 )
 
@@ -24,15 +26,15 @@ func TestSettingsStartEmptyAndArePerChat(t *testing.T) {
 	}
 
 	// Assert
-	if empty != (ChatSettings{}) {
-		t.Errorf("configuración inicial = %+v, se esperaba vacía", empty)
+	if empty != (ChatSettings{Reminders: true}) {
+		t.Errorf("configuración inicial = %+v, se esperaba la de por defecto", empty)
 	}
 	got, _ := s.Settings(ctx, chatA)
-	want := ChatSettings{RUC: "80024627-6", Imputations: Imputations{IVA: true, IRP: true}}
+	want := ChatSettings{RUC: "80024627-6", Imputations: Imputations{IVA: true, IRP: true}, Reminders: true}
 	if got != want {
 		t.Errorf("configuración = %+v, se esperaba %+v", got, want)
 	}
-	if other, _ := s.Settings(ctx, chatB); other != (ChatSettings{}) {
+	if other, _ := s.Settings(ctx, chatB); other != (ChatSettings{Reminders: true}) {
 		t.Errorf("el chat B no debería tener configuración: %+v", other)
 	}
 }
@@ -116,5 +118,52 @@ func TestSavedInvoicesForAYearIncludesEveryMonthOfThatYear(t *testing.T) {
 	}
 	if len(month) != 1 {
 		t.Errorf("septiembre = %d facturas", len(month))
+	}
+}
+
+func TestFlagsArePerChatAndKeepTheRest(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	_ = s.SetRUC(ctx, chatA, "80024627-6")
+
+	_ = s.SetAutoSave(ctx, chatA, true)
+	_ = s.SetReminders(ctx, chatA, false)
+	_ = s.SetAwaitingRUC(ctx, chatA, true)
+
+	got, _ := s.Settings(ctx, chatA)
+	if got.RUC != "80024627-6" || !got.AutoSave || got.Reminders || !got.AwaitingRUC {
+		t.Errorf("configuración = %+v", got)
+	}
+	if other, _ := s.Settings(ctx, chatB); other.AutoSave || !other.Reminders {
+		t.Errorf("el chat B mantiene los valores por defecto: %+v", other)
+	}
+}
+
+func TestOpenMigratesADatabaseCreatedBeforeTheNewColumns(t *testing.T) {
+	// Arrange: una base con chat_settings como era antes.
+	path := filepath.Join(t.TempDir(), "vieja.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE chat_settings (chat_id INTEGER PRIMARY KEY, ruc TEXT NOT NULL DEFAULT '',
+		impute_iva INTEGER NOT NULL DEFAULT 0, impute_ire INTEGER NOT NULL DEFAULT 0, impute_irp INTEGER NOT NULL DEFAULT 0);
+		INSERT INTO chat_settings (chat_id, ruc, impute_iva) VALUES (111, '80024627-6', 1);`)
+	_ = old.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	// Assert: los datos siguen y las columnas nuevas tienen su valor por defecto.
+	got, err := s.Settings(context.Background(), chatA)
+	if err != nil || got.RUC != "80024627-6" || !got.Imputations.IVA || got.AutoSave || !got.Reminders {
+		t.Errorf("configuración migrada = %+v, error = %v", got, err)
 	}
 }

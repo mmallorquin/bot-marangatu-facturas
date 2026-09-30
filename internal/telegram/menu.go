@@ -14,9 +14,11 @@ func ConfigureMenu(ctx context.Context, b *bot.Bot) error {
 	_, commandsErr := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{Commands: []models.BotCommand{
 		{Command: "resumen", Description: "Ver las facturas y el total de este mes"},
 		{Command: "facturas", Description: "Ver las facturas guardadas y borrar las que sobran"},
+		{Command: "pendientes", Description: "Guardar de una vez las facturas leídas que cierran"},
 		{Command: "exportar", Description: "Revisar las facturas y generar el ZIP"},
 		{Command: "ruc", Description: "Consultar o configurar tu RUC"},
 		{Command: "imputar", Description: "Elegir impuestos: IVA, IRE o IRP"},
+		{Command: "autoguardar", Description: "Guardar solas las facturas que cierran"},
 		{Command: "cancelar", Description: "Cancelar una corrección pendiente"},
 		{Command: "start", Description: "Ver cómo usar el bot"},
 	}})

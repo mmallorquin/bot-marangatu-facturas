@@ -23,7 +23,12 @@ const (
 	EventDuplicate       = "duplicada"      // quiso guardar una factura que ya tenía
 	EventSaveBlocked     = "guardar_bloqueado"
 	EventDiscarded       = "descartada"
+	EventUndo            = "deshecha" // tocó Deshacer en una factura guardada automáticamente
+	EventAutoSave        = "autoguardar"
+	EventReminder        = "recordatorio" // el bot recordó exportar; detalle: mensual | anual
+	EventReminderSetting = "recordatorios"
 	EventList            = "facturas"            // usó /facturas
+	EventPending         = "pendientes"          // usó /pendientes
 	EventDeleted         = "borrada"             // sacó una factura ya guardada
 	EventCorrection      = "correccion"          // detalle: campo corregido
 	EventBadCorrection   = "correccion_invalida" // detalle: campo
