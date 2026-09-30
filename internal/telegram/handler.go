@@ -36,6 +36,8 @@ type InvoiceStore interface {
 	DeleteSaved(ctx context.Context, chatID, id int64) error
 	IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error)
 	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
+	Unsave(ctx context.Context, chatID, id int64) error
+	SetAutoSave(ctx context.Context, chatID int64, on bool) error
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -133,6 +135,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 	case pendingCommand:
 		h.showPending(ctx, b, chatID)
 		return
+	case autoSaveCommand:
+		h.setAutoSave(ctx, b, chatID, text)
+		return
 	}
 
 	pending, found, err := h.deps.Store.Awaiting(ctx, chatID)
@@ -199,11 +204,26 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		h.send(ctx, b, chatID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, h.invoiceMessage(ctx, chatID, inv, issues), mainKeyboard(id))
+	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
+		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
+			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
+			h.send(ctx, b, chatID, text+"\n\n"+AutoSavedNote, undoKeyboard(id))
+			return
+		}
+		// Si falla el guardado automático, queda como borrador con los botones de siempre.
+	}
+	h.send(ctx, b, chatID, text, mainKeyboard(id))
 }
 
-// invoiceMessage es la factura con sus avisos: si ya estaba guardada o si es electrónica.
-func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice, issues []invoice.Issue) string {
+func (h *handler) autoSaves(ctx context.Context, chatID int64) bool {
+	cs, err := h.deps.Store.Settings(ctx, chatID)
+	return err == nil && cs.AutoSave
+}
+
+// invoiceMessage es la factura con sus avisos (si ya estaba guardada o si es electrónica)
+// e indica si es un duplicado.
+func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice, issues []invoice.Issue) (string, bool) {
 	text := FormatInvoice(inv, issues)
 	saved, err := h.deps.Store.IsSaved(ctx, chatID, inv)
 	if err != nil {
@@ -215,7 +235,7 @@ func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.
 	if inv.CDC != "" {
 		text += "\n\n" + ElectronicNote
 	}
-	return text
+	return text, saved
 }
 
 func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64, pending store.Pending, text string) {
@@ -241,7 +261,8 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
-	h.send(ctx, b, chatID, h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited)), mainKeyboard(rec.ID))
+	message, _ := h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited))
+	h.send(ctx, b, chatID, message, mainKeyboard(rec.ID))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
@@ -277,14 +298,15 @@ func (h *handler) sendSummary(ctx context.Context, b *bot.Bot, chatID int64, tex
 
 // commandEvents es el evento que registra cada comando.
 var commandEvents = map[string]string{
-	startCommand:   store.EventStart,
-	summaryCommand: store.EventSummary,
-	cancelCommand:  store.EventCancel,
-	rucCommand:     store.EventRUC,
-	imputeCommand:  store.EventImpute,
-	exportCommand:  store.EventExportPreview,
-	listCommand:    store.EventList,
-	pendingCommand: store.EventPending,
+	startCommand:    store.EventStart,
+	summaryCommand:  store.EventSummary,
+	cancelCommand:   store.EventCancel,
+	rucCommand:      store.EventRUC,
+	imputeCommand:   store.EventImpute,
+	exportCommand:   store.EventExportPreview,
+	listCommand:     store.EventList,
+	pendingCommand:  store.EventPending,
+	autoSaveCommand: store.EventAutoSave,
 }
 
 // readEvent describe el resultado de una lectura, sin datos de la factura.

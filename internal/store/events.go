@@ -23,6 +23,8 @@ const (
 	EventDuplicate       = "duplicada"      // quiso guardar una factura que ya tenía
 	EventSaveBlocked     = "guardar_bloqueado"
 	EventDiscarded       = "descartada"
+	EventUndo            = "deshecha" // tocó Deshacer en una factura guardada automáticamente
+	EventAutoSave        = "autoguardar"
 	EventList            = "facturas"            // usó /facturas
 	EventPending         = "pendientes"          // usó /pendientes
 	EventDeleted         = "borrada"             // sacó una factura ya guardada

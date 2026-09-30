@@ -17,20 +17,27 @@ type Imputations struct {
 	IRP bool // IRP-RSP
 }
 
-// ChatSettings es la configuración fiscal de un chat.
+// ChatSettings es la configuración de un chat.
 type ChatSettings struct {
 	RUC         string
 	Imputations Imputations
+	AutoSave    bool // guardar sin preguntar las facturas que cierran
+	Reminders   bool // recordar exportar cuando termina el período
+	AwaitingRUC bool // configuración guiada: el próximo texto es el RUC
 }
 
-// Settings devuelve la configuración del chat (vacía si todavía no configuró nada).
+// defaultSettings es la configuración de un chat que todavía no configuró nada.
+var defaultSettings = ChatSettings{Reminders: true}
+
+// Settings devuelve la configuración del chat (la de por defecto si todavía no configuró nada).
 func (s *Store) Settings(ctx context.Context, chatID int64) (ChatSettings, error) {
 	var cs ChatSettings
 	err := s.db.QueryRowContext(ctx, `
-		SELECT ruc, impute_iva, impute_ire, impute_irp FROM chat_settings WHERE chat_id = ?`, chatID).
-		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP)
+		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc
+		FROM chat_settings WHERE chat_id = ?`, chatID).
+		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ChatSettings{}, nil
+		return defaultSettings, nil
 	}
 	if err != nil {
 		return ChatSettings{}, fmt.Errorf("leyendo la configuración: %w", err)
@@ -45,6 +52,32 @@ func (s *Store) SetRUC(ctx context.Context, chatID int64, ruc string) error {
 		ON CONFLICT (chat_id) DO UPDATE SET ruc = excluded.ruc`, chatID, ruc)
 	if err != nil {
 		return fmt.Errorf("guardando el RUC: %w", err)
+	}
+	return nil
+}
+
+// SetAutoSave activa o desactiva el guardado automático.
+func (s *Store) SetAutoSave(ctx context.Context, chatID int64, on bool) error {
+	return s.setFlag(ctx, chatID, "auto_save", on)
+}
+
+// SetReminders activa o desactiva los recordatorios de exportar.
+func (s *Store) SetReminders(ctx context.Context, chatID int64, on bool) error {
+	return s.setFlag(ctx, chatID, "reminders", on)
+}
+
+// SetAwaitingRUC marca que el próximo texto del chat es su RUC (configuración guiada).
+func (s *Store) SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error {
+	return s.setFlag(ctx, chatID, "awaiting_ruc", on)
+}
+
+// setFlag cambia una columna booleana de chat_settings; column viene siempre de este paquete.
+func (s *Store) setFlag(ctx context.Context, chatID int64, column string, on bool) error {
+	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO chat_settings (chat_id, %[1]s) VALUES (?, ?)
+		ON CONFLICT (chat_id) DO UPDATE SET %[1]s = excluded.%[1]s`, column), chatID, on)
+	if err != nil {
+		return fmt.Errorf("guardando la configuración: %w", err)
 	}
 	return nil
 }

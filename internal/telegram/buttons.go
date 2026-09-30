@@ -45,6 +45,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		return
 	}
 	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID, callback: c}
+	if c.action == actionUndo {
+		h.undoAutoSave(ctx, b, press)
+		return
+	}
 
 	rec, err := h.deps.Store.Get(ctx, press.chatID, c.id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && rec.Status != store.StatusDraft) {
@@ -96,6 +100,27 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, noKeyboard())
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
+}
+
+// undoAutoSave vuelve a borrador una factura guardada automáticamente y muestra los botones de siempre.
+func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPress) {
+	err := h.deps.Store.Unsave(ctx, press.chatID, press.callback.id)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotSaved) {
+			h.logger.Error("no se pudo deshacer el guardado", "chat_id", press.chatID, "error", err)
+		}
+		h.answer(ctx, b, press.queryID, NotSavedAnymoreAlert, false)
+		h.editKeyboard(ctx, b, press, noKeyboard())
+		return
+	}
+	h.track(ctx, press.chatID, store.Event{Kind: store.EventUndo})
+	rec, err := h.deps.Store.Get(ctx, press.chatID, press.callback.id)
+	if err != nil {
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, mainKeyboard(rec.ID))
+	h.answer(ctx, b, press.queryID, "", false)
 }
 
 // savedDetail es el detalle del evento de guardado: si el usuario corrigió algo antes.

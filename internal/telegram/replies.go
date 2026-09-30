@@ -16,6 +16,7 @@ const (
 		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
 		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
 		"/pendientes — guardar de una vez las leídas que cierran\n" +
+		"/autoguardar si — guardar solas las facturas que cierran\n" +
 		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
 		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
@@ -33,6 +34,8 @@ const (
 
 	SavedNote             = "💾 Guardada."
 	DuplicateNote         = "⚠️ Ya tenías guardada esta factura."
+	AutoSavedNote         = "💾 Guardada automáticamente. Si algo no está bien, tocá Deshacer."
+	UndoneNote            = "↩️ Listo, no está guardada. Corregila, guardala o descartala."
 	AlreadySavedNote      = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
 	ElectronicNote        = "ℹ️ Es una factura electrónica (tiene CDC): Marangatu ya la tiene, así que no va en el ZIP. Guardala igual para verla en tu /resumen."
 	DiscardedMessage      = "🗑️ Factura descartada."

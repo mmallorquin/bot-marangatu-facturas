@@ -21,6 +21,7 @@ const (
 	actionEdit    = "e" // mostrar los campos a corregir
 	actionField   = "f" // corregir un campo
 	actionBack    = "v" // volver a los botones principales
+	actionUndo    = "u" // deshacer un guardado automático
 )
 
 const fieldsPerRow = 2
@@ -56,7 +57,7 @@ func parseCallback(data string) (callback, error) {
 	case c.action == actionField && len(parts) == 3 && slices.Contains(invoice.EditableFields, parts[2]):
 		c.field = parts[2]
 		return c, nil
-	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack}, c.action):
+	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo}, c.action):
 		return c, nil
 	default:
 		return callback{}, errInvalidCallback
@@ -73,6 +74,13 @@ func mainKeyboard(id int64) *models.InlineKeyboardMarkup {
 		button("✅ Guardar", callback{action: actionSave, id: id}),
 		button("✏️ Corregir", callback{action: actionEdit, id: id}),
 		button("🗑️ Descartar", callback{action: actionDiscard, id: id}),
+	}}}
+}
+
+// undoKeyboard acompaña a una factura guardada automáticamente.
+func undoKeyboard(id int64) *models.InlineKeyboardMarkup {
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
+		button("↩️ Deshacer", callback{action: actionUndo, id: id}),
 	}}}
 }
 
