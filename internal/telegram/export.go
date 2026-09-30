@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -147,7 +148,7 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 	}
 	message := "✅ Tus compras se van a imputar a: " + formatImputations(imp)
 	if imp.IRP {
-		message += "\n\n" + annualHint(h.deps.Now().Format(yearLayout))
+		message += "\n\n" + annualHint(annualYearToFile(h.deps.Now()))
 	}
 	h.send(ctx, b, chatID, message, nil)
 }
@@ -373,6 +374,18 @@ func exportCaption(period string, export marangatu.Export, imputesIRP bool) stri
 		caption += "\n\n" + note
 	}
 	return caption
+}
+
+// El registro anual del IRP-RSP se presenta hasta febrero del año siguiente: en enero y febrero
+// el archivo que corresponde es el del año anterior.
+const lastMonthForPreviousYear = time.February
+
+// annualYearToFile es el año cuyo archivo anual conviene sugerir en esta fecha.
+func annualYearToFile(now time.Time) string {
+	if now.Month() <= lastMonthForPreviousYear {
+		return now.AddDate(-1, 0, 0).Format(yearLayout)
+	}
+	return now.Format(yearLayout)
 }
 
 // annualHint explica cómo generar el archivo anual a quien imputa al IRP-RSP.
