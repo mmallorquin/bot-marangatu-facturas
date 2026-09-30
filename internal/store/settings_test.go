@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -86,5 +87,34 @@ func TestNextExportSeqCountsPerChatAndPeriod(t *testing.T) {
 
 	if err != nil || first != 1 || second != 2 || otherMonth != 1 || otherChat != 1 {
 		t.Errorf("secuencias = %d, %d, %d, %d (err %v)", first, second, otherMonth, otherChat, err)
+	}
+}
+
+func TestSavedInvoicesForAYearIncludesEveryMonthOfThatYear(t *testing.T) {
+	// Arrange
+	s := openTestStore(t)
+	ctx := context.Background()
+	for i, date := range []string{"2026-09-20", "2025-12-31", "2026-01-05", "2027-01-01"} {
+		inv := sampleInvoice(fmt.Sprintf("001-001-%07d", i+1), 110_000)
+		inv.Date = date
+		id, _ := s.CreateDraft(ctx, chatA, newDraft(inv))
+		if err := s.Save(ctx, chatA, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	year, err := s.SavedInvoices(ctx, chatA, "2026")
+	month, _ := s.SavedInvoices(ctx, chatA, "2026-09")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(year) != 2 || year[0].Date != "2026-01-05" || year[1].Date != "2026-09-20" {
+		t.Errorf("año 2026 = %+v", year)
+	}
+	if len(month) != 1 {
+		t.Errorf("septiembre = %d facturas", len(month))
 	}
 }

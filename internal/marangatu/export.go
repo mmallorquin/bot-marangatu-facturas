@@ -95,7 +95,7 @@ type Skipped struct {
 
 // Export es el archivo listo para subir a Marangatu.
 type Export struct {
-	FileName string // <RUC>_REG_MMAAAA_<ID>.zip
+	FileName string // <RUC>_REG_MMAAAA_<ID>.zip (mensual) o <RUC>_REG_AAAA_<ID>.zip (anual)
 	Zip      []byte
 	Rows     int
 	Skipped  []Skipped
@@ -109,7 +109,7 @@ func FileID(seq int) string {
 	return fmt.Sprintf("%05d", seq)
 }
 
-// BuildPurchases arma el ZIP de compras de un período (AAAA-MM).
+// BuildPurchases arma el ZIP de compras de un período: AAAA-MM (mensual) o AAAA (anual).
 // Las facturas que no se pueden importar se informan en Export.Skipped.
 func BuildPurchases(invoices []invoice.Invoice, s Settings, period, fileID string) (Export, error) {
 	if !fileIDPattern.MatchString(fileID) {
@@ -124,8 +124,8 @@ func BuildPurchases(invoices []invoice.Invoice, s Settings, period, fileID strin
 	for _, inv := range preview.Invoices {
 		lines.WriteString(purchaseRow(inv, s) + lineEnding)
 	}
-	month, _ := time.Parse("2006-01", period) // ya fue validado por PreviewPurchases
-	baseName := fmt.Sprintf("%s_REG_%s_%s", rucBase(s.RUC), month.Format("012006"), fileID)
+	parsed, _ := ParsePeriod(period) // ya fue validado por PreviewPurchases
+	baseName := fmt.Sprintf("%s_REG_%s_%s", rucBase(s.RUC), parsed.fileToken(), fileID)
 	data, err := zipSingleFile(baseName+fileExtension, []byte(lines.String()))
 	if err != nil {
 		return Export{}, err

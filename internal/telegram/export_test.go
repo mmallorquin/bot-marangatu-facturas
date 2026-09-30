@@ -38,7 +38,7 @@ func TestExportCaptionListsSkippedInvoices(t *testing.T) {
 		{Number: "001-001-0000009", Reason: marangatu.ReasonElectronic},
 	}}
 
-	caption := exportCaption("2026-09", export)
+	caption := exportCaption("2026-09", export, false)
 
 	for _, want := range []string{"3 comprobantes", "Septiembre 2026", "001-001-0000009", marangatu.ReasonElectronic} {
 		if !strings.Contains(caption, want) {

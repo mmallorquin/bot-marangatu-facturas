@@ -62,11 +62,17 @@ func (s *Store) SetImputations(ctx context.Context, chatID int64, imp Imputation
 	return nil
 }
 
-// SavedInvoices devuelve las facturas guardadas del chat en el período AAAA-MM, en el orden en que se leyeron.
+// SavedInvoices devuelve las facturas guardadas del chat en el período: un mes (AAAA-MM)
+// o un año entero (AAAA). Van mes por mes y, dentro de cada mes, en el orden en que se leyeron.
 func (s *Store) SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error) {
+	first, last := period, period
+	if len(period) == len("2006") {
+		first, last = period+"-01", period+"-12"
+	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT invoice_json FROM invoices WHERE chat_id = ? AND status = ? AND period = ? ORDER BY id`,
-		chatID, StatusSaved, period)
+		SELECT invoice_json FROM invoices
+		WHERE chat_id = ? AND status = ? AND period BETWEEN ? AND ? ORDER BY period, id`,
+		chatID, StatusSaved, first, last)
 	if err != nil {
 		return nil, fmt.Errorf("leyendo las facturas: %w", err)
 	}

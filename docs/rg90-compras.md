@@ -7,8 +7,10 @@ de la DNIT (versión 1, junio 2021), aplicado en `internal/marangatu`.
 
 - `.txt` delimitado por **tabulaciones** (también se admite `.csv` delimitado por comas; usamos TXT para que las comas en razones sociales no rompan el archivo).
 - UTF-8, **sin encabezado**, máximo **5.000 filas**.
-- Se sube **comprimido en ZIP** con el mismo nombre que el archivo de adentro:
-  `<RUC sin DV>_REG_<MMAAAA>_<ID de hasta 5 caracteres>.zip` → ej. `80024627_REG_092026_V0001.zip`.
+- Se sube **comprimido en ZIP** con el mismo nombre que el archivo de adentro. El período depende de la obligación:
+  - **Mensual (obligación 955):** `<RUC sin DV>_REG_<MMAAAA>_<ID de hasta 5 caracteres>.zip` → ej. `80024627_REG_092026_V0001.zip`. Es el que genera `/exportar` o `/exportar 09/2026`.
+  - **Anual (obligación 956):** `<RUC sin DV>_REG_<AAAA>_<ID>.zip` → ej. `80024627_REG_2026_V0001.zip`. Lo usa quien registra sus comprobantes una vez al año, como el IRP-RSP anual. Marangatu no acepta el archivo de un mes en esa obligación. Lo genera `/exportar 2026`, con todas las facturas guardadas del año.
+- Cada período (cada mes y cada año) tiene su propia numeración de archivos: V0001, V0002…
 - **No** se incluyen comprobantes electrónicos (e-Kuatia, con CDC) ni virtuales: Marangatu los obtiene solo.
 - Los RUC van **sin dígito verificador**.
 
