@@ -3,8 +3,11 @@ package telegram
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-telegram/bot/models"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
@@ -93,5 +96,27 @@ func TestReadTimeoutIsStillRecorded(t *testing.T) {
 	// Assert
 	if m := h.metrics(t); m.ReadErrors != 1 {
 		t.Errorf("errores de lectura = %d, se esperaba 1", m.ReadErrors)
+	}
+}
+
+func TestPDFIsReadAndCountedAsPDF(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+
+	// Act
+	h.send(&models.Update{Message: &models.Message{
+		Chat:     models.Chat{ID: testChatID},
+		Document: &models.Document{FileID: "pdf", MimeType: "application/pdf", FileSize: 200_000},
+	}})
+
+	// Assert
+	if len(h.reader.received) != 1 || h.reader.received[0].MimeType != "application/pdf" {
+		t.Fatalf("el lector debería recibir el PDF: %+v", h.reader.received)
+	}
+	if got := h.telegram.lastSent(t); !strings.Contains(got.markup, `"g:1"`) {
+		t.Errorf("debería mostrar la factura con botones: %+v", got)
+	}
+	if m := h.metrics(t); m.Photos != 1 || m.PDFs != 1 {
+		t.Errorf("archivos = %d, PDF = %d", m.Photos, m.PDFs)
 	}
 }

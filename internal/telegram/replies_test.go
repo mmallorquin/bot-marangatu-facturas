@@ -50,9 +50,9 @@ func TestImageFileOf(t *testing.T) {
 			wantKind: imageUnsupported,
 		},
 		{
-			name:     "PDF",
-			msg:      &models.Message{Document: &models.Document{FileID: "doc", MimeType: "application/pdf"}},
-			wantKind: imageUnsupported,
+			name:       "PDF",
+			msg:        &models.Message{Document: &models.Document{FileID: "doc", MimeType: "application/pdf"}},
+			wantFileID: "doc", wantMime: "application/pdf", wantKind: imageSupported,
 		},
 		{
 			name:     "imagen demasiado grande",

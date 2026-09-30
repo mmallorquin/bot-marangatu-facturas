@@ -12,20 +12,21 @@ import (
 
 const (
 	WelcomeMessage = "👋 ¡Hola! Soy el bot de facturas para Marangatu.\n\n" +
-		"Mandame una foto de tu factura: la leo, la revisás y la guardás.\n\n" +
+		"Mandame una foto de tu factura (o el PDF): la leo, la revisás y la guardás.\n\n" +
 		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
+		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
 		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
 		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
 		"/imputar — a qué impuestos imputás tus compras (iva, ire, irp)\n" +
 		"/cancelar — cancelar una corrección\n\n" +
 		"Tocá Menú junto al campo de mensaje para elegir un comando."
-	HelpMessage              = "Mandame una foto de la factura 📸 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
+	HelpMessage              = "Mandame una foto de la factura 📸 o el PDF 📄 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
 	ReadErrorMessage         = "😕 No pude leer la factura en este momento. Probá de nuevo en un rato."
 	NotInvoiceMessage        = "🤔 No parece una factura. Mandame una foto donde se vea el comprobante completo."
-	UnsupportedFormatMessage = "Por ahora solo leo imágenes JPG, PNG o WEBP. Mandá la factura como foto 📸"
-	TooLargeMessage          = "La imagen es muy pesada (máximo 10 MB). Mandala como foto normal 📸"
+	UnsupportedFormatMessage = "Por ahora leo fotos e imágenes JPG, PNG o WEBP, y archivos PDF. Mandá la factura como foto 📸 o como PDF 📄"
+	TooLargeMessage          = "El archivo es muy pesado (máximo 10 MB). Mandá la factura como foto normal 📸"
 	RetakeTip                = "📸 Tip: sacá la foto de nuevo con buena luz, de frente y con la factura completa."
 
 	SavedNote             = "💾 Guardada."
@@ -33,6 +34,8 @@ const (
 	DiscardedMessage      = "🗑️ Factura descartada."
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."
+	NotSavedAnymoreAlert  = "Esa factura ya no está guardada."
+	DeletedMessage        = "🗑️ Factura borrada."
 	CancelledMessage      = "Listo, cancelé la corrección."
 	NothingToCancel       = "No había ninguna corrección pendiente."
 	StoreErrorMessage     = "😕 No pude guardar los cambios. Probá de nuevo."
@@ -67,8 +70,10 @@ const (
 	photoMimeType = "image/jpeg"
 )
 
-// Formatos que aceptan los modelos con visión.
-var supportedMimeTypes = []string{"image/jpeg", "image/png", "image/webp"}
+// Formatos que aceptan los modelos con visión. El PDF es común en facturas que llegan por email.
+var supportedMimeTypes = []string{"image/jpeg", "image/png", "image/webp", pdfMimeType}
+
+const pdfMimeType = "application/pdf"
 
 // ReplyForText decide qué responder a un mensaje de texto que no es un comando del flujo.
 func ReplyForText(text string) string {

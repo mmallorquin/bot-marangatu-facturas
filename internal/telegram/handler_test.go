@@ -445,7 +445,7 @@ func TestUnsupportedFilesAreRejectedWithoutCallingTheReader(t *testing.T) {
 		doc  *models.Document
 		want string
 	}{
-		"PDF":        {&models.Document{FileID: "d", MimeType: "application/pdf"}, UnsupportedFormatMessage},
+		"Word":       {&models.Document{FileID: "d", MimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}, UnsupportedFormatMessage},
 		"muy grande": {&models.Document{FileID: "d", MimeType: "image/jpeg", FileSize: maxImageBytes + 1}, TooLargeMessage},
 	}
 

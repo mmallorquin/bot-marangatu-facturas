@@ -8,10 +8,10 @@ import (
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 )
 
-// Image es una foto de factura lista para enviar al modelo.
+// Image es una foto o un PDF de factura, listo para enviar al modelo.
 type Image struct {
 	Data     []byte
-	MimeType string // image/jpeg, image/png o image/webp
+	MimeType string // image/jpeg, image/png, image/webp o application/pdf
 }
 
 // Result es lo que devolvió el modelo, más datos para medir costo.

@@ -27,6 +27,13 @@ type contentPart struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *imageURL `json:"image_url,omitempty"`
+	File     *fileData `json:"file,omitempty"`
+}
+
+// fileData es un archivo adjunto (por ejemplo, un PDF) en formato data URL.
+type fileData struct {
+	Filename string `json:"filename"`
+	FileData string `json:"file_data"`
 }
 
 type imageURL struct {
