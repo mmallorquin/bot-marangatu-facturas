@@ -107,6 +107,7 @@ esas opciones automáticamente al arrancar.
 | `/resumen 08/2026` | Lo mismo para otro mes |
 | `/exportar` | Muestra la previa del mes y permite descargar o generar el ZIP |
 | `/exportar 08/2026` | Lo mismo para otro mes |
+| `/exportar 2026` | Archivo del año entero, para quien presenta el IRP-RSP en forma anual |
 | `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |
 | `/imputar iva irp` | A qué impuestos imputás tus compras: `iva`, `ire`, `irp` |
 | `/cancelar` | Cancela una corrección a medias |

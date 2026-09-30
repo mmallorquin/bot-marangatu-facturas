@@ -107,25 +107,42 @@ var monthNames = []string{
 	"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 }
 
-// Formatos aceptados en "/resumen <período>".
+// Formatos aceptados para un mes en "/resumen <período>" y "/exportar <período>".
 var periodLayouts = []string{"2006-01", "1/2006", "01/2006"}
 
-// parsePeriod lee el período de "/resumen [AAAA-MM | MM/AAAA]"; sin argumento, el mes actual.
+// yearLayout es un año entero: el período anual (por ejemplo, IRP-RSP anual).
+const yearLayout = "2006"
+
+// parsePeriod lee el período de "/resumen [AAAA-MM | MM/AAAA | AAAA]"; sin argumento, el mes actual.
+// Devuelve "AAAA-MM" para un mes o "AAAA" para un año.
 func parsePeriod(text string, now time.Time) (string, error) {
 	fields := strings.Fields(text)
 	if len(fields) < 2 {
 		return now.Format("2006-01"), nil
+	}
+	if len(fields[1]) == len(yearLayout) {
+		if parsed, err := time.Parse(yearLayout, fields[1]); err == nil {
+			return parsed.Format(yearLayout), nil
+		}
 	}
 	for _, layout := range periodLayouts {
 		if parsed, err := time.Parse(layout, fields[1]); err == nil {
 			return parsed.Format("2006-01"), nil
 		}
 	}
-	return "", fmt.Errorf("no entiendo el período %q: usá /resumen 09/2026", fields[1])
+	return "", fmt.Errorf("no entiendo el período %q: usá 09/2026 para un mes o 2026 para el año", fields[1])
 }
 
-// periodTitle convierte "2026-09" en "Septiembre 2026".
+// isAnnual indica si el período es un año entero.
+func isAnnual(period string) bool {
+	return len(period) == len(yearLayout)
+}
+
+// periodTitle convierte "2026-09" en "Septiembre 2026"; un año queda como "2026".
 func periodTitle(period string) string {
+	if isAnnual(period) {
+		return period
+	}
 	parsed, err := time.Parse("2006-01", period)
 	if err != nil {
 		return period
@@ -137,7 +154,11 @@ func periodTitle(period string) string {
 func FormatMonthSummary(period string, sum store.Summary) string {
 	title := periodTitle(period)
 	if sum.Count == 0 {
-		return fmt.Sprintf("📊 %s\n\nNo guardaste facturas de este mes todavía.", title)
+		unit := "este mes"
+		if isAnnual(period) {
+			unit = "este año"
+		}
+		return fmt.Sprintf("📊 %s\n\nNo guardaste facturas de %s todavía.", title, unit)
 	}
 
 	var b strings.Builder

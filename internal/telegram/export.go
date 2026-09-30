@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -50,7 +49,7 @@ func parseExportCallback(data string) (exportCallback, error) {
 		!slices.Contains([]string{exportActionCSV, exportActionExcel, exportActionZIP, exportActionCancel}, parts[1]) {
 		return exportCallback{}, errInvalidCallback
 	}
-	if _, err := time.Parse("2006-01", parts[2]); err != nil {
+	if _, err := marangatu.ParsePeriod(parts[2]); err != nil {
 		return exportCallback{}, errInvalidCallback
 	}
 	return exportCallback{action: parts[1], period: parts[2]}, nil
@@ -146,7 +145,11 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, "✅ Tus compras se van a imputar a: "+formatImputations(imp), nil)
+	message := "✅ Tus compras se van a imputar a: " + formatImputations(imp)
+	if imp.IRP {
+		message += "\n\n" + annualHint(h.deps.Now().Format(yearLayout))
+	}
+	h.send(ctx, b, chatID, message, nil)
 }
 
 // exportMonth muestra una previa; el ZIP se arma recién cuando el usuario lo confirma.
@@ -225,6 +228,9 @@ func formatExportPreview(period string, preview marangatu.Preview, imp store.Imp
 	}
 	if skipped := formatSkipped(preview.Skipped); skipped != "" {
 		text.WriteString("\n\n" + skipped)
+	}
+	if note := periodNote(period, imp.IRP); note != "" {
+		text.WriteString("\n\n" + note)
 	}
 	return text.String()
 }
@@ -336,7 +342,7 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 	_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
 		ChatID:   press.chatID,
 		Document: &models.InputFileUpload{Filename: export.FileName, Data: bytes.NewReader(export.Zip)},
-		Caption:  exportCaption(period, export),
+		Caption:  exportCaption(period, export, prepared.settings.ImputeIRP),
 	})
 	if err != nil {
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
@@ -354,7 +360,7 @@ func (h *handler) exportCallbackError(ctx context.Context, b *bot.Bot, queryID s
 }
 
 // exportCaption explica qué hay en el archivo y qué quedó afuera.
-func exportCaption(period string, export marangatu.Export) string {
+func exportCaption(period string, export marangatu.Export, imputesIRP bool) string {
 	noun := "comprobantes"
 	if export.Rows == 1 {
 		noun = "comprobante"
@@ -363,7 +369,26 @@ func exportCaption(period string, export marangatu.Export) string {
 	if len(export.Skipped) > 0 {
 		caption += "\n\n" + formatSkipped(export.Skipped)
 	}
+	if note := periodNote(period, imputesIRP); note != "" {
+		caption += "\n\n" + note
+	}
 	return caption
+}
+
+// annualHint explica cómo generar el archivo anual a quien imputa al IRP-RSP.
+func annualHint(year string) string {
+	return fmt.Sprintf("ℹ️ Si presentás el IRP-RSP en forma anual, Marangatu pide el archivo del año: usá /exportar %s.", year)
+}
+
+// periodNote aclara qué tipo de archivo es: el anual siempre, el mensual solo a quien imputa al IRP-RSP.
+func periodNote(period string, imputesIRP bool) string {
+	if isAnnual(period) {
+		return fmt.Sprintf("ℹ️ Archivo anual (%s), para el registro anual del IRP-RSP. Para un mes usá /exportar 09/%s.", period, period)
+	}
+	if imputesIRP {
+		return annualHint(period[:len(yearLayout)])
+	}
+	return ""
 }
 
 func formatSkipped(skipped []marangatu.Skipped) string {

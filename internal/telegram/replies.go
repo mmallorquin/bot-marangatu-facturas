@@ -15,6 +15,7 @@ const (
 		"Mandame una foto de tu factura: la leo, la revisás y la guardás.\n\n" +
 		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
 		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
+		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
 		"/imputar — a qué impuestos imputás tus compras (iva, ire, irp)\n" +
 		"/cancelar — cancelar una corrección\n\n" +

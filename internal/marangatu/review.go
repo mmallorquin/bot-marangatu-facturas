@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/xuri/excelize/v2"
 
@@ -40,8 +39,8 @@ func PreviewPurchases(invoices []invoice.Invoice, s Settings, period string) (Pr
 	if err := s.Validate(); err != nil {
 		return preview, err
 	}
-	if _, err := time.Parse("2006-01", period); err != nil {
-		return preview, fmt.Errorf("%w: %q", ErrInvalidPeriod, period)
+	if _, err := ParsePeriod(period); err != nil {
+		return preview, err
 	}
 	for _, inv := range invoices {
 		if reason := skipReason(inv); reason != "" {
@@ -131,6 +130,6 @@ func (p Preview) XLSX() (ReviewFile, error) {
 }
 
 func (p Preview) reviewBaseName() string {
-	month, _ := time.Parse("2006-01", p.Period)
-	return fmt.Sprintf("%s_PREVIA_%s", rucBase(p.settings.RUC), month.Format("012006"))
+	period, _ := ParsePeriod(p.Period) // ya fue validado por PreviewPurchases
+	return fmt.Sprintf("%s_PREVIA_%s", rucBase(p.settings.RUC), period.fileToken())
 }

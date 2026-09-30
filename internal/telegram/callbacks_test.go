@@ -76,6 +76,7 @@ func TestParsePeriod(t *testing.T) {
 		"/resumen 2026-08": "2026-08",
 		"/resumen 8/2026":  "2026-08",
 		"/resumen 08/2026": "2026-08",
+		"/exportar 2026":   "2026",
 	}
 
 	for text, want := range cases {
