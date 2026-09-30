@@ -38,6 +38,9 @@ type InvoiceStore interface {
 	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
 	Unsave(ctx context.Context, chatID, id int64) error
 	SetAutoSave(ctx context.Context, chatID int64, on bool) error
+	SetReminders(ctx context.Context, chatID int64, on bool) error
+	ReminderCandidates(ctx context.Context, period string) ([]store.ReminderCandidate, error)
+	MarkReminded(ctx context.Context, chatID int64, period string) error
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -137,6 +140,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case autoSaveCommand:
 		h.setAutoSave(ctx, b, chatID, text)
+		return
+	case remindersCommand:
+		h.setReminders(ctx, b, chatID, text)
 		return
 	}
 
@@ -298,15 +304,16 @@ func (h *handler) sendSummary(ctx context.Context, b *bot.Bot, chatID int64, tex
 
 // commandEvents es el evento que registra cada comando.
 var commandEvents = map[string]string{
-	startCommand:    store.EventStart,
-	summaryCommand:  store.EventSummary,
-	cancelCommand:   store.EventCancel,
-	rucCommand:      store.EventRUC,
-	imputeCommand:   store.EventImpute,
-	exportCommand:   store.EventExportPreview,
-	listCommand:     store.EventList,
-	pendingCommand:  store.EventPending,
-	autoSaveCommand: store.EventAutoSave,
+	startCommand:     store.EventStart,
+	summaryCommand:   store.EventSummary,
+	cancelCommand:    store.EventCancel,
+	rucCommand:       store.EventRUC,
+	imputeCommand:    store.EventImpute,
+	exportCommand:    store.EventExportPreview,
+	listCommand:      store.EventList,
+	pendingCommand:   store.EventPending,
+	autoSaveCommand:  store.EventAutoSave,
+	remindersCommand: store.EventReminderSetting,
 }
 
 // readEvent describe el resultado de una lectura, sin datos de la factura.

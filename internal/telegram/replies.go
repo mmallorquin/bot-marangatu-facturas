@@ -17,6 +17,7 @@ const (
 		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
 		"/pendientes — guardar de una vez las leídas que cierran\n" +
 		"/autoguardar si — guardar solas las facturas que cierran\n" +
+		"/recordatorios no — no recibir el aviso de exportar a fin de mes\n" +
 		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
 		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +

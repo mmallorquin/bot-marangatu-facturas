@@ -160,3 +160,55 @@ func (s *Store) NextExportSeq(ctx context.Context, chatID int64, period string) 
 	}
 	return seq, nil
 }
+
+// ReminderCandidate es un chat al que conviene recordarle que exporte un período.
+type ReminderCandidate struct {
+	ChatID      int64
+	Invoices    int // facturas guardadas del período
+	Imputations Imputations
+}
+
+// ReminderCandidates devuelve los chats con facturas guardadas en el período (AAAA-MM o AAAA)
+// que no generaron el ZIP de ese período, no desactivaron los recordatorios y no fueron avisados.
+func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]ReminderCandidate, error) {
+	first, last := period, period
+	if len(period) == len("2006") {
+		first, last = period+"-01", period+"-12"
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT i.chat_id, COUNT(*),
+			COALESCE(cs.impute_iva, 0), COALESCE(cs.impute_ire, 0), COALESCE(cs.impute_irp, 0)
+		FROM invoices i
+		LEFT JOIN chat_settings cs ON cs.chat_id = i.chat_id
+		WHERE i.status = ? AND i.period BETWEEN ? AND ?
+			AND COALESCE(cs.reminders, 1) = 1
+			AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.chat_id = i.chat_id AND e.period = ?)
+			AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.chat_id = i.chat_id AND r.period = ?)
+		GROUP BY i.chat_id ORDER BY i.chat_id`,
+		StatusSaved, first, last, period, period)
+	if err != nil {
+		return nil, fmt.Errorf("buscando a quién recordar: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []ReminderCandidate
+	for rows.Next() {
+		var c ReminderCandidate
+		if err := rows.Scan(&c.ChatID, &c.Invoices, &c.Imputations.IVA, &c.Imputations.IRE, &c.Imputations.IRP); err != nil {
+			return nil, fmt.Errorf("buscando a quién recordar: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
+}
+
+// MarkReminded anota que el chat ya recibió el recordatorio del período.
+func (s *Store) MarkReminded(ctx context.Context, chatID int64, period string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO reminders (chat_id, period, sent_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+		chatID, period, timestamp())
+	if err != nil {
+		return fmt.Errorf("anotando el recordatorio: %w", err)
+	}
+	return nil
+}
