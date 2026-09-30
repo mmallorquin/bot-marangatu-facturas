@@ -49,20 +49,17 @@ público y el servidor solo descarga. La versión instalada queda en `/opt/bot-m
 
 ### Instalación (una sola vez)
 
-Desde la Mac, con el repo actualizado:
+Desde la Mac, en la carpeta del repo, con la conexión de casa: algunas redes corporativas bloquean SSH.
 
 ```bash
-scp scripts/actualizar-servidor.sh deploy/bot-marangatu-update.service deploy/bot-marangatu-update.timer hermes-vm:
-ssh -t hermes-vm '
-  sudo install -m 0755 actualizar-servidor.sh /opt/bot-marangatu/actualizar-servidor.sh &&
-  sudo install -m 0644 bot-marangatu-update.service bot-marangatu-update.timer /etc/systemd/system/ &&
-  sudo systemctl daemon-reload &&
-  sudo systemctl enable --now bot-marangatu-update.timer &&
-  sudo systemctl start bot-marangatu-update.service ;
-  sudo journalctl -u bot-marangatu-update.service -n 20 --no-pager'
+git pull
+scripts/instalar-deploy-automatico.sh            # usa el alias hermes-vm
 ```
 
-El último comando instala en el momento el Release más reciente.
+Sin el alias: `scripts/instalar-deploy-automatico.sh ubuntu@144.22.129.166` (con la llave configurada en
+`~/.ssh/config` o cargada con `ssh-add`). El script baja los archivos desde GitHub en el servidor,
+activa el timer e instala en el momento el Release más reciente. Tiene que terminar con
+`Versión instalada: v…` y `active`.
 
 ### Seguimiento
 
