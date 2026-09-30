@@ -77,7 +77,8 @@ const pdfMimeType = "application/pdf"
 
 // ReplyForText decide qué responder a un mensaje de texto que no es un comando del flujo.
 func ReplyForText(text string) string {
-	if commandOf(text) == startCommand {
+	switch commandOf(text) {
+	case startCommand, "/ayuda", "/help":
 		return WelcomeMessage
 	}
 	return HelpMessage

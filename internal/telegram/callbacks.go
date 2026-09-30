@@ -162,7 +162,11 @@ func FormatMonthSummary(period string, sum store.Summary) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "📊 %s: %d facturas guardadas\n\n", title, sum.Count)
+	noun := "facturas guardadas"
+	if sum.Count == 1 {
+		noun = "factura guardada"
+	}
+	fmt.Fprintf(&b, "📊 %s: %d %s\n\n", title, sum.Count, noun)
 	if sum.Exempt != 0 {
 		fmt.Fprintf(&b, "Exentas: %s\n", formatGs(sum.Exempt))
 	}

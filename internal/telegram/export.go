@@ -147,7 +147,7 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 		return
 	}
 	message := "✅ Tus compras se van a imputar a: " + formatImputations(imp)
-	if imp.IRP {
+	if filesAnnually(imp.IRP, imp.IVA, imp.IRE) {
 		message += "\n\n" + annualHint(annualYearToFile(h.deps.Now()))
 	}
 	h.send(ctx, b, chatID, message, nil)
@@ -216,7 +216,7 @@ func formatExportPreview(period string, preview marangatu.Preview, imp store.Imp
 
 	var text strings.Builder
 	fmt.Fprintf(&text, "📋 Previa — %s\n\n", periodTitle(period))
-	fmt.Fprintf(&text, "%d %s listos para Marangatu\n", len(preview.Invoices), noun)
+	fmt.Fprintf(&text, "%d %s %s para Marangatu\n", len(preview.Invoices), noun, readyWord(len(preview.Invoices)))
 	fmt.Fprintf(&text, "Total: %s Gs\n", formatGs(preview.Total))
 	fmt.Fprintf(&text, "Imputación: %s\n", formatImputations(imp))
 
@@ -230,7 +230,7 @@ func formatExportPreview(period string, preview marangatu.Preview, imp store.Imp
 	if skipped := formatSkipped(preview.Skipped); skipped != "" {
 		text.WriteString("\n\n" + skipped)
 	}
-	if note := periodNote(period, imp.IRP); note != "" {
+	if note := periodNote(period, filesAnnually(imp.IRP, imp.IVA, imp.IRE)); note != "" {
 		text.WriteString("\n\n" + note)
 	}
 	return text.String()
@@ -343,7 +343,8 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 	_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
 		ChatID:   press.chatID,
 		Document: &models.InputFileUpload{Filename: export.FileName, Data: bytes.NewReader(export.Zip)},
-		Caption:  exportCaption(period, export, prepared.settings.ImputeIRP),
+		Caption: exportCaption(period, export,
+			filesAnnually(prepared.settings.ImputeIRP, prepared.settings.ImputeIVA, prepared.settings.ImputeIRE)),
 	})
 	if err != nil {
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
@@ -361,19 +362,32 @@ func (h *handler) exportCallbackError(ctx context.Context, b *bot.Bot, queryID s
 }
 
 // exportCaption explica qué hay en el archivo y qué quedó afuera.
-func exportCaption(period string, export marangatu.Export, imputesIRP bool) string {
+func exportCaption(period string, export marangatu.Export, mayFileAnnually bool) string {
 	noun := "comprobantes"
 	if export.Rows == 1 {
 		noun = "comprobante"
 	}
-	caption := fmt.Sprintf("📤 %d %s de %s listos para Marangatu.\n%s", export.Rows, noun, periodTitle(period), uploadHint)
+	caption := fmt.Sprintf("📤 %d %s de %s %s para Marangatu.\n%s", export.Rows, noun, periodTitle(period), readyWord(export.Rows), uploadHint)
 	if len(export.Skipped) > 0 {
 		caption += "\n\n" + formatSkipped(export.Skipped)
 	}
-	if note := periodNote(period, imputesIRP); note != "" {
+	if note := periodNote(period, mayFileAnnually); note != "" {
 		caption += "\n\n" + note
 	}
 	return caption
+}
+
+func readyWord(n int) string {
+	if n == 1 {
+		return "listo"
+	}
+	return "listos"
+}
+
+// filesAnnually indica si conviene avisar del archivo anual: solo a quien imputa al IRP-RSP
+// sin IVA ni IRE, porque quien liquida IVA o IRE registra sus comprobantes mes a mes.
+func filesAnnually(irp, iva, ire bool) bool {
+	return irp && !iva && !ire
 }
 
 // El registro anual del IRP-RSP se presenta hasta febrero del año siguiente: en enero y febrero
@@ -393,12 +407,12 @@ func annualHint(year string) string {
 	return fmt.Sprintf("ℹ️ Si presentás el IRP-RSP en forma anual, Marangatu pide el archivo del año: usá /exportar %s.", year)
 }
 
-// periodNote aclara qué tipo de archivo es: el anual siempre, el mensual solo a quien imputa al IRP-RSP.
-func periodNote(period string, imputesIRP bool) string {
+// periodNote aclara qué tipo de archivo es: el anual siempre, el mensual solo a quien puede presentar anual.
+func periodNote(period string, mayFileAnnually bool) string {
 	if isAnnual(period) {
 		return fmt.Sprintf("ℹ️ Archivo anual (%s), para el registro anual del IRP-RSP. Para un mes usá /exportar 09/%s.", period, period)
 	}
-	if imputesIRP {
+	if mayFileAnnually {
 		return annualHint(period[:len(yearLayout)])
 	}
 	return ""
@@ -411,7 +425,7 @@ func formatSkipped(skipped []marangatu.Skipped) string {
 	var b strings.Builder
 	b.WriteString("Quedaron afuera:\n")
 	for _, s := range skipped {
-		fmt.Fprintf(&b, "• %s: %s\n", s.Number, s.Reason)
+		fmt.Fprintf(&b, "• %s — %s\n", s.Number, s.Reason)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
