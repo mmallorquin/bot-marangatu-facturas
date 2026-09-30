@@ -266,6 +266,37 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 	})
 }
 
+// Drafts devuelve los borradores del chat (leídos, sin guardar ni descartar), del más viejo al más nuevo.
+func (s *Store) Drafts(ctx context.Context, chatID int64) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM invoices WHERE chat_id = ? AND status = ? ORDER BY id`, chatID, StatusDraft)
+	if err != nil {
+		return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("leyendo los pendientes: %w", err)
+	}
+
+	drafts := make([]Record, 0, len(ids))
+	for _, id := range ids {
+		rec, err := s.Get(ctx, chatID, id)
+		if err != nil {
+			return nil, err
+		}
+		drafts = append(drafts, rec)
+	}
+	return drafts, nil
+}
+
 // IsSaved indica si el chat ya guardó esta misma factura (mismo tipo, RUC, timbrado y número).
 func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error) {
 	inv.Number = invoice.NormalizeNumber(inv.Number)

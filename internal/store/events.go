@@ -24,6 +24,7 @@ const (
 	EventSaveBlocked     = "guardar_bloqueado"
 	EventDiscarded       = "descartada"
 	EventList            = "facturas"            // usó /facturas
+	EventPending         = "pendientes"          // usó /pendientes
 	EventDeleted         = "borrada"             // sacó una factura ya guardada
 	EventCorrection      = "correccion"          // detalle: campo corregido
 	EventBadCorrection   = "correccion_invalida" // detalle: campo

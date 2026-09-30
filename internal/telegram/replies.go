@@ -12,9 +12,10 @@ import (
 
 const (
 	WelcomeMessage = "👋 ¡Hola! Soy el bot de facturas para Marangatu.\n\n" +
-		"Mandame una foto de tu factura (o el PDF): la leo, la revisás y la guardás.\n\n" +
+		"Mandame una foto de tu factura (o el PDF): la leo, la revisás y la guardás. Podés mandar varias juntas.\n\n" +
 		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
 		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
+		"/pendientes — guardar de una vez las leídas que cierran\n" +
 		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
 		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
@@ -23,6 +24,7 @@ const (
 		"Tocá Menú junto al campo de mensaje para elegir un comando."
 	HelpMessage              = "Mandame una foto de la factura 📸 o el PDF 📄 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
+	ReadingAlbumMessage      = "⏳ Leyendo tus facturas… Cuando terminen, con /pendientes guardás de una vez las que cierran."
 	ReadErrorMessage         = "😕 No pude leer la factura en este momento. Probá de nuevo en un rato."
 	NotInvoiceMessage        = "🤔 No parece una factura. Mandame una foto donde se vea el comprobante completo."
 	UnsupportedFormatMessage = "Por ahora leo fotos e imágenes JPG, PNG o WEBP, y archivos PDF. Mandá la factura como foto 📸 o como PDF 📄"

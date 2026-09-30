@@ -35,6 +35,7 @@ type InvoiceStore interface {
 	SavedRecords(ctx context.Context, chatID int64, period string) ([]store.SavedRecord, error)
 	DeleteSaved(ctx context.Context, chatID, id int64) error
 	IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error)
+	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -56,13 +57,14 @@ func NewHandler(deps Deps) bot.HandlerFunc {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	h := &handler{deps: deps, logger: deps.Logger}
+	h := &handler{deps: deps, logger: deps.Logger, albums: &albums{}}
 	return h.handle
 }
 
 type handler struct {
 	deps   Deps
 	logger *slog.Logger
+	albums *albums
 }
 
 func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -92,7 +94,12 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 			detail = store.EventDetailPDF
 		}
 		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto, Detail: detail})
-		h.send(ctx, b, chatID, ReadingMessage, nil)
+		switch {
+		case msg.MediaGroupID == "":
+			h.send(ctx, b, chatID, ReadingMessage, nil)
+		case h.albums.first(msg.MediaGroupID, time.Now()):
+			h.send(ctx, b, chatID, ReadingAlbumMessage, nil)
+		}
 		h.processImage(ctx, b, chatID, file)
 	}
 }
@@ -122,6 +129,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case listCommand:
 		h.listInvoices(ctx, b, chatID, text)
+		return
+	case pendingCommand:
+		h.showPending(ctx, b, chatID)
 		return
 	}
 
@@ -274,6 +284,7 @@ var commandEvents = map[string]string{
 	imputeCommand:  store.EventImpute,
 	exportCommand:  store.EventExportPreview,
 	listCommand:    store.EventList,
+	pendingCommand: store.EventPending,
 }
 
 // readEvent describe el resultado de una lectura, sin datos de la factura.

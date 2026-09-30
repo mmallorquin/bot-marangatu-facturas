@@ -35,6 +35,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleListCallback(ctx, b, query, msg)
 		return
 	}
+	if query.Data == pendingSaveCallback {
+		h.saveAllReady(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID})
+		return
+	}
 	c, err := parseCallback(query.Data)
 	if err != nil {
 		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
@@ -88,14 +92,18 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 	default:
 		h.logger.Info("factura guardada", "chat_id", press.chatID, "id", rec.ID, "corregida", rec.Corrected)
-		detail := store.EventDetailClean
-		if rec.Corrected {
-			detail = store.EventDetailCorrected
-		}
-		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: detail})
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: savedDetail(rec.Corrected)})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, noKeyboard())
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
+}
+
+// savedDetail es el detalle del evento de guardado: si el usuario corrigió algo antes.
+func savedDetail(corrected bool) string {
+	if corrected {
+		return store.EventDetailCorrected
+	}
+	return store.EventDetailClean
 }
 
 func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPress) {

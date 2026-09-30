@@ -53,6 +53,11 @@ type Issue struct {
 	Message string
 }
 
+// Clean indica que la factura se puede guardar tal cual: sin problemas de validación ni campos dudosos.
+func Clean(inv Invoice) bool {
+	return inv.IsInvoice && len(Validate(inv)) == 0 && len(inv.UncertainFields) == 0
+}
+
 // Validate revisa que la factura sea coherente. No modifica la factura recibida.
 // Devuelve una lista vacía si todo está bien.
 func Validate(inv Invoice) []Issue {
