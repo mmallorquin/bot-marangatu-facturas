@@ -1,0 +1,8 @@
+[Unit]
+Description=Bot Marangatu - instalar el último Release de GitHub
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/bot-marangatu/actualizar-servidor.sh

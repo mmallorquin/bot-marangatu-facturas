@@ -164,6 +164,12 @@ go run ./cmd/metricas -dias 7 -excluir 123456789 -usuarios
 
 En el servidor: ver [docs/deploy-oracle.md](docs/deploy-oracle.md#métricas-de-uso).
 
+## Deploy
+
+Cada merge a `main` corre los tests, compila y publica un Release en GitHub. El servidor revisa cada
+5 minutos si hay uno nuevo, lo instala y vuelve a la versión anterior si el bot no arranca.
+Ver [docs/deploy-oracle.md](docs/deploy-oracle.md#deploy-automático-desde-github).
+
 ## Comparar modelos
 
 Poné fotos de facturas en `facturas/` (está en `.gitignore`) y corré:
