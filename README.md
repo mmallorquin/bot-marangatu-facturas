@@ -90,7 +90,9 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 En Telegram, tocá **Menú** junto al campo de mensaje para elegir un comando. El bot registra
 esas opciones automáticamente al arrancar.
 
-1. Mandás la foto de la factura o el PDF.
+La primera vez, `/start` te pide el RUC (lo escribís tal cual) y los impuestos con botones.
+
+1. Mandás la foto de la factura o el PDF. Podés mandar varias juntas, como álbum.
 2. El bot la lee y te la muestra con tres botones:
 
    ```
@@ -99,7 +101,10 @@ esas opciones automáticamente al arrancar.
 
 3. **✏️ Corregir**: elegís el campo, escribís el valor correcto (`150.000`, `20/09/2026`, `1-1-1234`…)
    y el bot vuelve a validar.
-4. **✅ Guardar**: solo se puede si todos los datos cierran. Si ya habías guardado la misma factura, te avisa.
+4. **✅ Guardar**: solo se puede si todos los datos cierran. Si ya habías guardado la misma factura, te avisa
+   apenas la lee. Si es electrónica (tiene CDC), te avisa que no va en el ZIP porque Marangatu ya la tiene.
+
+Con `/autoguardar si`, las facturas que cierran se guardan solas, con un botón **↩️ Deshacer**.
 
 | Comando | Qué hace |
 |---|---|
@@ -112,7 +117,11 @@ esas opciones automáticamente al arrancar.
 | `/exportar 2026` | Archivo del año entero, para quien presenta el IRP-RSP en forma anual |
 | `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |
 | `/imputar iva irp` | A qué impuestos imputás tus compras: `iva`, `ire`, `irp` |
+| `/pendientes` | Cuenta las facturas leídas sin guardar y guarda de una vez las que cierran |
+| `/autoguardar si` / `no` | Guardar solas las facturas que cierran |
+| `/recordatorios si` / `no` | Aviso de exportar: el día 3 de cada mes por el mes anterior (o en enero, si presentás anual) |
 | `/cancelar` | Cancela una corrección a medias |
+| `/borrar_mis_datos` | Borra todo lo que guardaste en el bot, con confirmación |
 
 ### Exportar a Marangatu
 
