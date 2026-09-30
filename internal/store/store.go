@@ -266,6 +266,19 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 	})
 }
 
+// IsSaved indica si el chat ya guardó esta misma factura (mismo tipo, RUC, timbrado y número).
+func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error) {
+	inv.Number = invoice.NormalizeNumber(inv.Number)
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND dedup_key = ?)`,
+		chatID, StatusSaved, dedupKey(inv)).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("buscando duplicados: %w", err)
+	}
+	return exists, nil
+}
+
 // DeleteSaved saca una factura guardada del chat: deja de aparecer en /resumen y en la exportación.
 // No se elimina de la base (sigue contando en las métricas) y la misma factura se puede volver a guardar.
 func (s *Store) DeleteSaved(ctx context.Context, chatID, id int64) error {

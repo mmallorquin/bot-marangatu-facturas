@@ -31,6 +31,8 @@ const (
 
 	SavedNote             = "💾 Guardada."
 	DuplicateNote         = "⚠️ Ya tenías guardada esta factura."
+	AlreadySavedNote      = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
+	ElectronicNote        = "ℹ️ Es una factura electrónica (tiene CDC): Marangatu ya la tiene, así que no va en el ZIP. Guardala igual para verla en tu /resumen."
 	DiscardedMessage      = "🗑️ Factura descartada."
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."

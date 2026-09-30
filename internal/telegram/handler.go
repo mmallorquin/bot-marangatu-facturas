@@ -34,6 +34,7 @@ type InvoiceStore interface {
 	SavedInvoices(ctx context.Context, chatID int64, period string) ([]invoice.Invoice, error)
 	SavedRecords(ctx context.Context, chatID int64, period string) ([]store.SavedRecord, error)
 	DeleteSaved(ctx context.Context, chatID, id int64) error
+	IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error)
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
@@ -188,7 +189,23 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		h.send(ctx, b, chatID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, FormatInvoice(inv, issues), mainKeyboard(id))
+	h.send(ctx, b, chatID, h.invoiceMessage(ctx, chatID, inv, issues), mainKeyboard(id))
+}
+
+// invoiceMessage es la factura con sus avisos: si ya estaba guardada o si es electrónica.
+func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice, issues []invoice.Issue) string {
+	text := FormatInvoice(inv, issues)
+	saved, err := h.deps.Store.IsSaved(ctx, chatID, inv)
+	if err != nil {
+		h.logger.Warn("no se pudo buscar duplicados", "chat_id", chatID, "error", err)
+	}
+	if saved {
+		text += "\n\n" + AlreadySavedNote
+	}
+	if inv.CDC != "" {
+		text += "\n\n" + ElectronicNote
+	}
+	return text
 }
 
 func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64, pending store.Pending, text string) {
@@ -214,7 +231,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
-	h.send(ctx, b, chatID, FormatInvoice(edited, invoice.Validate(edited)), mainKeyboard(rec.ID))
+	h.send(ctx, b, chatID, h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited)), mainKeyboard(rec.ID))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
