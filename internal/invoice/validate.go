@@ -3,6 +3,8 @@ package invoice
 import (
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -125,7 +127,23 @@ func checkVAT(field string, taxed, vat, divisor int64) (Issue, bool) {
 	if abs(vat-expected) <= tolerance {
 		return Issue{}, true
 	}
-	return Issue{field, fmt.Sprintf("el IVA debería ser cerca de %d, pero dice %d", expected, vat)}, false
+	return Issue{field, fmt.Sprintf("el IVA debería ser cerca de %s, pero dice %s", thousands(expected), thousands(vat))}, false
+}
+
+// thousands escribe un monto con punto de miles, como en las facturas: 13636 → "13.636".
+func thousands(n int64) string {
+	digits := strconv.FormatInt(abs(n), 10)
+	var b strings.Builder
+	if n < 0 {
+		b.WriteByte('-')
+	}
+	for i, d := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte('.')
+		}
+		b.WriteRune(d)
+	}
+	return b.String()
 }
 
 // roundDiv divide redondeando al entero más cercano (para montos no negativos).

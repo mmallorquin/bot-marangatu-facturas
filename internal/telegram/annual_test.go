@@ -93,3 +93,18 @@ func TestAnnualYearToFileSuggestsLastYearUntilFebruary(t *testing.T) {
 		}
 	}
 }
+
+func TestAnnualHintIsOnlyForIRPWithoutIVAOrIRE(t *testing.T) {
+	h := newHarness(t)
+	h.saveOneInvoice(t)
+	h.sendText("/ruc 80024627-6")
+
+	h.sendText("/imputar iva irp")
+	imputeReply := h.telegram.lastSent(t).text
+	h.sendText("/exportar")
+	preview := h.telegram.lastSent(t).text
+
+	if strings.Contains(imputeReply, "anual") || strings.Contains(preview, "anual") {
+		t.Errorf("quien liquida IVA registra mes a mes, no hace falta el aviso anual:\n%s\n---\n%s", imputeReply, preview)
+	}
+}

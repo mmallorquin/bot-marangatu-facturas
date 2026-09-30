@@ -400,7 +400,7 @@ func TestSummaryCommandShowsSavedInvoicesOfTheMonth(t *testing.T) {
 
 	h.sendText("/resumen")
 
-	if got := h.telegram.lastSent(t); !strings.Contains(got.text, "Septiembre 2026: 1 facturas") {
+	if got := h.telegram.lastSent(t); !strings.Contains(got.text, "Septiembre 2026: 1 factura guardada") {
 		t.Errorf("resumen = %q", got.text)
 	}
 }

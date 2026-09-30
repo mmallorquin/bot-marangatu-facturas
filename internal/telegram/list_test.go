@@ -69,7 +69,7 @@ func TestDeletingAnInvoiceAsksFirstAndRemovesItFromSummary(t *testing.T) {
 	if !strings.Contains(last, "Factura borrada") || !strings.Contains(last, "1 factura guardada") || strings.Contains(last, "0000001") {
 		t.Errorf("la lista actualizada debería tener solo la otra factura:\n%s", last)
 	}
-	if !strings.Contains(afterDelete, "1 facturas") {
+	if !strings.Contains(afterDelete, "1 factura guardada") {
 		t.Errorf("resumen después de borrar = %q", afterDelete)
 	}
 	if m := h.metrics(t); m.Deleted != 1 || m.Lists != 1 {
@@ -94,7 +94,7 @@ func TestCannotDeleteAnotherChatsInvoice(t *testing.T) {
 	h.sendText("/resumen")
 
 	// Assert
-	if got := h.telegram.lastSent(t).text; !strings.Contains(got, "1 facturas") {
+	if got := h.telegram.lastSent(t).text; !strings.Contains(got, "1 factura guardada") {
 		t.Errorf("la factura no debería haberse borrado: %q", got)
 	}
 }
