@@ -32,7 +32,52 @@ Para reiniciar:
 ssh hermes-vm 'sudo systemctl restart bot-marangatu.service'
 ```
 
-## Actualizar el ejecutable
+## Deploy automático desde GitHub
+
+El código se sube a GitHub y el servidor lo trae de ahí; nunca se copia desde la Mac.
+
+1. Cada merge a `main` corre el workflow `release` (`.github/workflows/release.yml`):
+   tests, compilación de `bot` y `metricas` para Linux y un Release con `SHA256SUMS`.
+2. En el servidor, el timer `bot-marangatu-update` corre cada 5 minutos
+   `scripts/actualizar-servidor.sh`. Si hay un Release nuevo, lo baja, verifica los checksums,
+   instala los dos ejecutables y reinicia el bot.
+3. Si el bot no queda corriendo 20 segundos después, vuelve a la versión anterior y no reintenta
+   ese Release. El próximo merge se instala normalmente.
+
+GitHub no necesita ninguna llave del servidor, ni el servidor una de GitHub: el repositorio es
+público y el servidor solo descarga. La versión instalada queda en `/opt/bot-marangatu/VERSION`.
+
+### Instalación (una sola vez)
+
+Desde la Mac, con el repo actualizado:
+
+```bash
+scp scripts/actualizar-servidor.sh deploy/bot-marangatu-update.service deploy/bot-marangatu-update.timer hermes-vm:
+ssh -t hermes-vm '
+  sudo install -m 0755 actualizar-servidor.sh /opt/bot-marangatu/actualizar-servidor.sh &&
+  sudo install -m 0644 bot-marangatu-update.service bot-marangatu-update.timer /etc/systemd/system/ &&
+  sudo systemctl daemon-reload &&
+  sudo systemctl enable --now bot-marangatu-update.timer &&
+  sudo systemctl start bot-marangatu-update.service ;
+  sudo journalctl -u bot-marangatu-update.service -n 20 --no-pager'
+```
+
+El último comando instala en el momento el Release más reciente.
+
+### Seguimiento
+
+```bash
+ssh hermes-vm 'cat /opt/bot-marangatu/VERSION'                                        # versión instalada
+ssh hermes-vm 'sudo journalctl -u bot-marangatu-update.service -n 30 --no-pager'      # últimas actualizaciones
+ssh hermes-vm 'systemctl list-timers bot-marangatu-update.timer --no-pager'           # próxima revisión
+ssh hermes-vm 'sudo systemctl start bot-marangatu-update.service'                     # actualizar ya
+```
+
+Para pausar las actualizaciones: `sudo systemctl disable --now bot-marangatu-update.timer`.
+
+## Actualizar el ejecutable a mano
+
+Solo si el deploy automático no está disponible.
 
 Compilar para la arquitectura del servidor (actualmente Linux x86-64) y transferirlo:
 
@@ -63,13 +108,7 @@ guardadas, exportaciones, costo y tiempos. No guarda datos de las facturas ni el
 mensajes, y los usuarios no ven nada de esto en Telegram. La tabla se crea sola cuando arranca
 la versión nueva del bot.
 
-Compilar el comando de métricas junto al bot e instalarlo en el servidor:
-
-```bash
-env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o bin/metricas-linux-amd64 ./cmd/metricas
-scp bin/metricas-linux-amd64 hermes-vm:metricas-next
-ssh hermes-vm 'sudo install -m 0755 "$HOME/metricas-next" /opt/bot-marangatu/metricas'
-```
+El deploy automático instala `/opt/bot-marangatu/metricas` junto con el bot.
 
 Consultarlas desde la Mac (abre la base en solo lectura; el bot puede seguir corriendo):
 
