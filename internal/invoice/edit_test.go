@@ -22,6 +22,9 @@ func TestEditNormalizesWhatTheUserTypes(t *testing.T) {
 		{FieldDate, "2026-09-20", func(i Invoice) bool { return i.Date == "2026-09-20" }},
 		{FieldNumber, "1-1-1234", func(i Invoice) bool { return i.Number == "001-001-0001234" }},
 		{FieldNumber, "001-002-0000456", func(i Invoice) bool { return i.Number == "001-002-0000456" }},
+		{FieldNumber, "001-005-00009821", func(i Invoice) bool { return i.Number == "001-005-0009821" }},
+		{FieldNumber, "001-005-00000000009821", func(i Invoice) bool { return i.Number == "001-005-0009821" }},
+		{FieldNumber, "001-005-00000000", func(i Invoice) bool { return i.Number == "001-005-0000000" }},
 		{FieldIssuerRUC, "800005198", func(i Invoice) bool { return i.IssuerRUC == "80000519-8" }},
 		{FieldIssuerRUC, " 3456789a-3 ", func(i Invoice) bool { return i.IssuerRUC == "3456789A-3" }},
 		{FieldTimbrado, "1234 5678", func(i Invoice) bool { return i.Timbrado == "12345678" }},
@@ -41,6 +44,20 @@ func TestEditNormalizesWhatTheUserTypes(t *testing.T) {
 			}
 			if !tc.check(got) {
 				t.Errorf("valor no normalizado: %+v", got)
+			}
+		})
+	}
+}
+
+func TestEditDoesNotTruncateSignificantInvoiceDigits(t *testing.T) {
+	for _, number := range []string{"001-005-12345678", "001-005-012345678", "001-005-00012345678"} {
+		t.Run(number, func(t *testing.T) {
+			got, err := Edit(validInvoice(), FieldNumber, number)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Number != number || !slices.Contains(fieldsWithIssues(Validate(got)), FieldNumber) {
+				t.Fatalf("no debe recortar ni aceptar dígitos significativos: %+v", got)
 			}
 		})
 	}

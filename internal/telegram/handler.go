@@ -137,6 +137,8 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 	}
 
 	inv := result.Invoice
+	// Se conserva el resultado del lector intacto para guardarlo como original.
+	inv.Number = invoice.NormalizeNumber(inv.Number)
 	issues := invoice.Validate(inv)
 	h.logger.Info("factura leída",
 		"chat_id", chatID,
@@ -154,7 +156,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		return
 	}
 
-	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: inv, Model: result.Model, CostUSD: result.CostUSD})
+	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: result.Invoice, Model: result.Model, CostUSD: result.CostUSD})
 	if err != nil {
 		h.logger.Error("no se pudo crear el borrador", "chat_id", chatID, "error", err)
 		h.send(ctx, b, chatID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
