@@ -17,6 +17,9 @@ import (
 // Tiempo máximo para descargar y leer una factura.
 const processTimeout = 2 * time.Minute
 
+// Tiempo máximo para registrar un evento de uso.
+const trackTimeout = 5 * time.Second
+
 // InvoiceStore es lo que el bot necesita para guardar facturas (lo implementa store.Store).
 type InvoiceStore interface {
 	CreateDraft(ctx context.Context, chatID int64, d store.Draft) (int64, error)
@@ -33,6 +36,7 @@ type InvoiceStore interface {
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
 	NextExportSeq(ctx context.Context, chatID int64, period string) (int, error)
+	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 }
 
 // Deps son las dependencias del handler.
@@ -74,16 +78,22 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 	case notAnImage:
 		h.handleText(ctx, b, chatID, msg.Text)
 	case imageUnsupported:
+		h.track(ctx, chatID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailFormat})
 		h.send(ctx, b, chatID, UnsupportedFormatMessage, nil)
 	case imageTooLarge:
+		h.track(ctx, chatID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailSize})
 		h.send(ctx, b, chatID, TooLargeMessage, nil)
 	case imageSupported:
+		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto})
 		h.send(ctx, b, chatID, ReadingMessage, nil)
 		h.processImage(ctx, b, chatID, file)
 	}
 }
 
 func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text string) {
+	if kind, ok := commandEvents[commandOf(text)]; ok {
+		h.track(ctx, chatID, store.Event{Kind: kind})
+	}
 	switch commandOf(text) {
 	case summaryCommand:
 		h.sendSummary(ctx, b, chatID, text)
@@ -110,6 +120,7 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		h.logger.Error("no se pudo leer la corrección pendiente", "chat_id", chatID, "error", err)
 	}
 	if !found {
+		h.track(ctx, chatID, store.Event{Kind: store.EventUnknownText})
 		h.send(ctx, b, chatID, ReplyForText(text), nil)
 		return
 	}
@@ -124,6 +135,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 	data, err := downloadFile(ctx, b, file.fileID)
 	if err != nil {
 		h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.deps.Token))
+		h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
 		h.send(ctx, b, chatID, ReadErrorMessage, nil)
 		return
 	}
@@ -132,6 +144,9 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 	result, err := h.deps.Reader.Read(ctx, reader.Image{Data: data, MimeType: file.mimeType})
 	if err != nil {
 		h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
+		h.track(ctx, chatID, store.Event{
+			Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
+		})
 		h.send(ctx, b, chatID, ReadErrorMessage, nil)
 		return
 	}
@@ -140,6 +155,8 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 	// Se conserva el resultado del lector intacto para guardarlo como original.
 	inv.Number = invoice.NormalizeNumber(inv.Number)
 	issues := invoice.Validate(inv)
+	seconds := time.Since(start).Seconds()
+	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
 	h.logger.Info("factura leída",
 		"chat_id", chatID,
 		"modelo", result.Model,
@@ -147,7 +164,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		"tokens_entrada", result.Usage.InputTokens,
 		"tokens_salida", result.Usage.OutputTokens,
 		"tokens_razonamiento", result.Usage.ReasoningTokens,
-		"segundos", time.Since(start).Seconds(),
+		"segundos", seconds,
 		"es_comprobante", inv.IsInvoice,
 		"problemas", len(issues),
 	)
@@ -175,6 +192,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 
 	edited, err := invoice.Edit(rec.Invoice, pending.Field, text)
 	if err != nil {
+		h.track(ctx, chatID, store.Event{Kind: store.EventBadCorrection, Detail: pending.Field})
 		h.send(ctx, b, chatID, "❌ "+err.Error()+"\n"+retryOrCancelHint, nil)
 		return
 	}
@@ -183,6 +201,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 		return
 	}
+	h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: pending.Field})
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
@@ -218,6 +237,38 @@ func (h *handler) sendSummary(ctx context.Context, b *bot.Bot, chatID int64, tex
 		return
 	}
 	h.send(ctx, b, chatID, FormatMonthSummary(period, sum), nil)
+}
+
+// commandEvents es el evento que registra cada comando.
+var commandEvents = map[string]string{
+	startCommand:   store.EventStart,
+	summaryCommand: store.EventSummary,
+	cancelCommand:  store.EventCancel,
+	rucCommand:     store.EventRUC,
+	imputeCommand:  store.EventImpute,
+	exportCommand:  store.EventExportPreview,
+}
+
+// readEvent describe el resultado de una lectura, sin datos de la factura.
+func readEvent(inv invoice.Invoice, issues []invoice.Issue, seconds, cost float64) store.Event {
+	e := store.Event{Kind: store.EventRead, Detail: store.EventDetailOK, Seconds: seconds, CostUSD: cost}
+	switch {
+	case !inv.IsInvoice:
+		e.Kind, e.Detail = store.EventNotInvoice, ""
+	case len(issues) > 0 || len(inv.UncertainFields) > 0:
+		e.Detail = store.EventDetailIssues
+	}
+	return e
+}
+
+// track registra un evento para las métricas. Si falla, el usuario no se entera.
+// Usa su propio plazo: una lectura que venció por timeout también tiene que quedar registrada.
+func (h *handler) track(ctx context.Context, chatID int64, e store.Event) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), trackTimeout)
+	defer cancel()
+	if err := h.deps.Store.LogEvent(ctx, chatID, e); err != nil {
+		h.logger.Warn("no se pudo registrar la métrica", "evento", e.Kind, "error", err)
+	}
 }
 
 // send envía un mensaje; keyboard puede ser nil.

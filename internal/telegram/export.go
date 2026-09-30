@@ -294,6 +294,7 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
 			return
 		}
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventExportReview, Detail: store.EventDetailCSV})
 		h.answer(ctx, b, query.ID, "CSV listo", false)
 	case exportActionExcel:
 		file, err := prepared.preview.XLSX()
@@ -304,6 +305,7 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
 			return
 		}
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventExportReview, Detail: store.EventDetailExcel})
 		h.answer(ctx, b, query.ID, "Excel listo", false)
 	case exportActionZIP:
 		h.sendConfirmedZIP(ctx, b, press, callback.period, prepared)
@@ -340,6 +342,7 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
 		return
 	}
+	h.track(ctx, press.chatID, store.Event{Kind: store.EventExportZIP})
 	h.editKeyboard(ctx, b, press, noKeyboard())
 	h.answer(ctx, b, press.queryID, "ZIP listo", false)
 	h.logger.Info("exportación enviada", "chat_id", press.chatID, "periodo", period, "filas", export.Rows, "omitidas", len(export.Skipped))

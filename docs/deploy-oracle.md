@@ -56,6 +56,35 @@ sudo journalctl -u bot-marangatu.service -n 20 --no-pager
 Si el ejecutable nuevo falla, detener el servicio e instalar `bot.previous` en la ruta
 `/opt/bot-marangatu/bot` antes de arrancarlo nuevamente.
 
+## Métricas de uso
+
+El bot registra eventos de uso en la misma base (tabla `events`): fotos, lecturas, correcciones,
+guardadas, exportaciones, costo y tiempos. No guarda datos de las facturas ni el texto de los
+mensajes, y los usuarios no ven nada de esto en Telegram. La tabla se crea sola cuando arranca
+la versión nueva del bot.
+
+Compilar el comando de métricas junto al bot e instalarlo en el servidor:
+
+```bash
+env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o bin/metricas-linux-amd64 ./cmd/metricas
+scp bin/metricas-linux-amd64 hermes-vm:metricas-next
+ssh hermes-vm 'sudo install -m 0755 "$HOME/metricas-next" /opt/bot-marangatu/metricas'
+```
+
+Consultarlas desde la Mac (abre la base en solo lectura; el bot puede seguir corriendo):
+
+```bash
+ssh hermes-vm 'sudo -u bot-marangatu /opt/bot-marangatu/metricas -db /var/lib/bot-marangatu/facturas.db -dias 7'
+```
+
+| Opción | Uso |
+|---|---|
+| `-dias 7` | Período; `-dias 0` es todo el historial |
+| `-excluir 123456789` | Chat_id que no cuentan, separados por coma (tus propias pruebas) |
+| `-usuarios` | Agrega una fila por chat: primer y último uso, días, fotos, guardadas, ZIP y costo |
+
+Tu chat_id aparece en la tabla de `-usuarios` y en los logs (`chat_id=`).
+
 ## Copia de la Mac
 
 Después de migrar, el servicio de launchd queda detenido y deshabilitado para el inicio

@@ -68,6 +68,7 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 
 func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	if issues := invoice.Validate(rec.Invoice); len(issues) > 0 {
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaveBlocked})
 		h.answer(ctx, b, press.queryID, FixBeforeSavingAlert, true)
 		return
 	}
@@ -75,6 +76,7 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 	err := h.deps.Store.Save(ctx, press.chatID, rec.ID)
 	switch {
 	case errors.Is(err, store.ErrDuplicate):
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventDuplicate})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+DuplicateNote, discardOnlyKeyboard(rec.ID))
 		h.answer(ctx, b, press.queryID, "", false)
 	case err != nil:
@@ -82,6 +84,11 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 	default:
 		h.logger.Info("factura guardada", "chat_id", press.chatID, "id", rec.ID, "corregida", rec.Corrected)
+		detail := store.EventDetailClean
+		if rec.Corrected {
+			detail = store.EventDetailCorrected
+		}
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: detail})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, noKeyboard())
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
@@ -93,6 +100,7 @@ func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPr
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
+	h.track(ctx, press.chatID, store.Event{Kind: store.EventDiscarded})
 	h.editText(ctx, b, press, DiscardedMessage, noKeyboard())
 	h.answer(ctx, b, press.queryID, "", false)
 }
