@@ -45,13 +45,14 @@ manejar tus credenciales.
 
 ```
 cmd/bot/              → punto de entrada: arma el bot y lo pone a escuchar
+cmd/metricas/         → reporte de uso del bot, leyendo la base en solo lectura
 cmd/comparar/         → compara modelos leyendo las fotos de facturas/ (costo, tiempo, resultados)
 internal/config/      → lee y valida la configuración (.env)
 internal/telegram/    → recibe la foto, la descarga y responde
 internal/reader/      → contrato para leer facturas (independiente del proveedor de IA)
 internal/openrouter/  → implementación con OpenRouter: prompt, esquema JSON y cliente HTTP
 internal/invoice/     → la factura, sus validaciones (RUC módulo 11, IVA, totales) y las correcciones
-internal/store/       → base SQLite local: facturas, duplicados, resumen, configuración por chat
+internal/store/       → base SQLite local: facturas, duplicados, resumen, configuración por chat, eventos de uso
 internal/marangatu/   → arma el ZIP para importar compras en Marangatu (RG 90)
 internal/benchmark/   → lógica de la comparación de modelos
 ```
@@ -146,6 +147,21 @@ scripts/servicio-mac.sh desinstalar  # lo detiene y lo quita (la base queda inta
 - No corras `go run ./cmd/bot` al mismo tiempo: dos bots con el mismo token chocan.
 - Si la Mac se suspende, el bot deja de responder hasta que se despierte.
 - El log queda en `~/Library/Logs/bot-marangatu-facturas.log`.
+
+## Métricas de la beta
+
+El bot registra cómo se usa, para medir la beta con usuarios reales: usuarios activos y que vuelven,
+embudo de cada foto (leída, guardada, descartada, abandonada), campos que la IA lee mal según las
+correcciones, costo y tiempos, y qué funciones se usan.
+
+Se guarda en la misma base SQLite, **sin datos de las facturas** ni el texto de los mensajes, y solo
+lo consulta quien administra el servidor. En Telegram no se ve nada:
+
+```bash
+go run ./cmd/metricas -dias 7 -excluir 123456789 -usuarios
+```
+
+En el servidor: ver [docs/deploy-oracle.md](docs/deploy-oracle.md#métricas-de-uso).
 
 ## Comparar modelos
 

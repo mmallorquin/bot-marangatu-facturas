@@ -166,13 +166,17 @@ func (h *harness) sendText(text string) {
 }
 
 func (h *harness) sendPhoto() {
-	h.send(&models.Update{Message: &models.Message{
+	h.send(photoUpdate())
+}
+
+func photoUpdate() *models.Update {
+	return &models.Update{Message: &models.Message{
 		Chat: models.Chat{ID: testChatID},
 		Photo: []models.PhotoSize{
 			{FileID: "chica", Width: 90, Height: 120},
 			{FileID: "grande", Width: 1280, Height: 1706},
 		},
-	}})
+	}}
 }
 
 func (h *harness) press(c callback) {

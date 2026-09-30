@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS exports (
 	seq     INTEGER NOT NULL, -- número de archivo del período: V0001, V0002...
 	PRIMARY KEY (chat_id, period)
 );
+
+-- Uso del bot para las métricas de la beta. Sin datos de las facturas.
+CREATE TABLE IF NOT EXISTS events (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	chat_id    INTEGER NOT NULL,
+	kind       TEXT    NOT NULL,
+	detail     TEXT    NOT NULL DEFAULT '',
+	seconds    REAL    NOT NULL DEFAULT 0, -- duración de la lectura
+	cost_usd   REAL    NOT NULL DEFAULT 0, -- costo de la lectura en OpenRouter
+	created_at TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
 `
 
 // Draft es una factura recién leída.
@@ -129,6 +141,25 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("creando las tablas: %w", err)
+	}
+	return &Store{db: db}, nil
+}
+
+// OpenReadOnly abre una base existente sin poder modificarla, para consultarla
+// mientras el bot sigue corriendo.
+func OpenReadOnly(path string) (*Store, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("abriendo la base: %w", err)
+	}
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(%d)", path, busyTimeoutMs)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("abriendo la base: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("abriendo la base: %w", err)
 	}
 	return &Store{db: db}, nil
 }
