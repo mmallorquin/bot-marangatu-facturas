@@ -348,6 +348,31 @@ func (s *Store) Unsave(ctx context.Context, chatID, id int64) error {
 	return ErrNotSaved
 }
 
+// DeleteChat borra todo lo del chat: facturas, configuración, exportaciones, recordatorios
+// y eventos de uso. Devuelve cuántas facturas (de cualquier estado) se borraron.
+func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("iniciando la transacción: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM invoices WHERE chat_id = ?`, chatID)
+	if err != nil {
+		return 0, fmt.Errorf("borrando las facturas: %w", err)
+	}
+	deleted, _ := res.RowsAffected()
+	for _, table := range []string{"chat_settings", "exports", "reminders", "events"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE chat_id = ?", chatID); err != nil {
+			return 0, fmt.Errorf("borrando %s: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("confirmando el borrado: %w", err)
+	}
+	return int(deleted), nil
+}
+
 // IsSaved indica si el chat ya guardó esta misma factura (mismo tipo, RUC, timbrado y número).
 func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error) {
 	inv.Number = invoice.NormalizeNumber(inv.Number)

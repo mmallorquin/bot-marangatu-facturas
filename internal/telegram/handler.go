@@ -39,6 +39,7 @@ type InvoiceStore interface {
 	Unsave(ctx context.Context, chatID, id int64) error
 	SetAutoSave(ctx context.Context, chatID int64, on bool) error
 	SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error
+	DeleteChat(ctx context.Context, chatID int64) (int, error)
 	SetReminders(ctx context.Context, chatID int64, on bool) error
 	ReminderCandidates(ctx context.Context, period string) ([]store.ReminderCandidate, error)
 	MarkReminded(ctx context.Context, chatID int64, period string) error
@@ -144,6 +145,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case remindersCommand:
 		h.setReminders(ctx, b, chatID, text)
+		return
+	case deleteDataCommand:
+		h.askDeleteData(ctx, b, chatID)
 		return
 	}
 
