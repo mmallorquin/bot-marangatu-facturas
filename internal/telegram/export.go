@@ -127,15 +127,14 @@ func (h *handler) setRUC(ctx context.Context, b *bot.Bot, chatID int64, text str
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
-	if err := h.deps.Store.SetRUC(ctx, chatID, ruc); err != nil {
-		h.logger.Error("no se pudo guardar el RUC", "chat_id", chatID, "error", err)
-		h.send(ctx, b, chatID, StoreErrorMessage, nil)
-		return
-	}
-	h.send(ctx, b, chatID, "✅ RUC guardado: "+ruc, nil)
+	h.saveRUC(ctx, b, chatID, ruc)
 }
 
 func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, text string) {
+	if len(strings.Fields(text)) < 2 {
+		h.askImputations(ctx, b, chatID)
+		return
+	}
 	imp, err := parseImputations(text)
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error()+"\n\n"+askImputations, nil)
@@ -146,11 +145,7 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 		return
 	}
-	message := "✅ Tus compras se van a imputar a: " + formatImputations(imp)
-	if filesAnnually(imp.IRP, imp.IVA, imp.IRE) {
-		message += "\n\n" + annualHint(annualYearToFile(h.deps.Now()))
-	}
-	h.send(ctx, b, chatID, message, nil)
+	h.send(ctx, b, chatID, h.imputationsSaved(imp), nil)
 }
 
 // exportMonth muestra una previa; el ZIP se arma recién cuando el usuario lo confirma.
@@ -171,7 +166,7 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		h.send(ctx, b, chatID, askRUCMessage, nil)
 		return
 	case cs.Imputations == (store.Imputations{}):
-		h.send(ctx, b, chatID, askImputations, nil)
+		h.askImputations(ctx, b, chatID)
 		return
 	}
 

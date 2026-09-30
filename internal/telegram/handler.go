@@ -38,6 +38,7 @@ type InvoiceStore interface {
 	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
 	Unsave(ctx context.Context, chatID, id int64) error
 	SetAutoSave(ctx context.Context, chatID int64, on bool) error
+	SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error
 	SetReminders(ctx context.Context, chatID int64, on bool) error
 	ReminderCandidates(ctx context.Context, period string) ([]store.ReminderCandidate, error)
 	MarkReminded(ctx context.Context, chatID int64, period string) error
@@ -121,7 +122,7 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		h.cancelCorrection(ctx, b, chatID)
 		return
 	case startCommand:
-		h.send(ctx, b, chatID, WelcomeMessage, nil)
+		h.welcome(ctx, b, chatID)
 		return
 	case rucCommand:
 		h.setRUC(ctx, b, chatID, text)
@@ -151,6 +152,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		h.logger.Error("no se pudo leer la corrección pendiente", "chat_id", chatID, "error", err)
 	}
 	if !found {
+		if commandOf(text) == "" && h.tryOnboardingRUC(ctx, b, chatID, text) {
+			return
+		}
 		h.track(ctx, chatID, store.Event{Kind: store.EventUnknownText})
 		h.send(ctx, b, chatID, ReplyForText(text), nil)
 		return
@@ -282,6 +286,8 @@ func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 	case found:
 		h.send(ctx, b, chatID, CancelledMessage, nil)
+	case h.stopOnboarding(ctx, chatID):
+		h.send(ctx, b, chatID, "Listo, cargás tu RUC después con /ruc 1234567-8.", nil)
 	default:
 		h.send(ctx, b, chatID, NothingToCancel, nil)
 	}

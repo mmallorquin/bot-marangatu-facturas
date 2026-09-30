@@ -30,7 +30,11 @@ func TestFullUserJourney(t *testing.T) {
 
 	// 1. Bienvenida y ayuda.
 	h.sendText("/start")
-	expect("/start", lastText(), "Mandame una foto", "/facturas", "/exportar 2026")
+	sent := h.telegram.byMethod("sendMessage")
+	expect("/start", sent[len(sent)-2].text, "Mandame una foto", "/facturas", "/exportar 2026")
+	expect("/start pide el RUC", lastText(), "necesito tu RUC")
+	h.sendText("/cancelar") // lo carga después, con /ruc
+	expect("/cancelar", lastText(), "/ruc")
 	h.sendText("/ayuda")
 	expect("/ayuda", lastText(), "/resumen", "/exportar")
 

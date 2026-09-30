@@ -35,6 +35,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleListCallback(ctx, b, query, msg)
 		return
 	}
+	if strings.HasPrefix(query.Data, imputeCallbackPrefix+":") {
+		h.handleImputeCallback(ctx, b, query, msg)
+		return
+	}
 	if query.Data == pendingSaveCallback {
 		h.saveAllReady(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID})
 		return
