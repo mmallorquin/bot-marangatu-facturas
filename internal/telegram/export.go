@@ -3,6 +3,7 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -30,27 +31,29 @@ const (
 		"/imputar iva\n/imputar iva irp\n\n(IVA, IRE o IRP-RSP)"
 	uploadHint = "Subilo en Marangatu, en la importación del Registro de Comprobantes (RG 90)."
 
-	exportCallbackPrefix = "x"
-	exportActionCSV      = "c"
-	exportActionExcel    = "e"
-	exportActionZIP      = "z"
-	exportActionCancel   = "n"
-	exportPreviewLimit   = 10
+	exportCallbackPrefix  = "x"
+	exportActionCSV       = "c"
+	exportActionExcel     = "e"
+	exportActionZIP       = "z"
+	exportActionCancel    = "n"
+	exportPreviewLimit    = 10
+	deliveryRecordTimeout = 5 * time.Second
 )
 
 type exportCallback struct {
-	action   string
-	period   string
-	revision string
+	action    string
+	period    string
+	revision  string
+	requestID string
 }
 
 func (c exportCallback) encode() string {
-	return fmt.Sprintf("%s:%s:%s:%s", exportCallbackPrefix, c.action, c.period, c.revision)
+	return fmt.Sprintf("%s:%s:%s:%s:%s", exportCallbackPrefix, c.action, c.period, c.revision, c.requestID)
 }
 
 func parseExportCallback(data string) (exportCallback, error) {
 	parts := strings.Split(data, ":")
-	if (len(parts) != 3 && len(parts) != 4) || parts[0] != exportCallbackPrefix ||
+	if (len(parts) < 3 || len(parts) > 5) || parts[0] != exportCallbackPrefix ||
 		!slices.Contains([]string{exportActionCSV, exportActionExcel, exportActionZIP, exportActionCancel}, parts[1]) {
 		return exportCallback{}, errInvalidCallback
 	}
@@ -58,15 +61,18 @@ func parseExportCallback(data string) (exportCallback, error) {
 		return exportCallback{}, errInvalidCallback
 	}
 	c := exportCallback{action: parts[1], period: parts[2]}
-	if len(parts) == 4 {
+	if len(parts) >= 4 {
 		c.revision = parts[3]
+	}
+	if len(parts) == 5 {
+		c.requestID = parts[4]
 	}
 	return c, nil
 }
 
-func exportPreviewKeyboard(period, revision string) *models.InlineKeyboardMarkup {
+func exportPreviewKeyboard(period, revision, requestID string) *models.InlineKeyboardMarkup {
 	button := func(text, action string) models.InlineKeyboardButton {
-		return models.InlineKeyboardButton{Text: text, CallbackData: exportCallback{action: action, period: period, revision: revision}.encode()}
+		return models.InlineKeyboardButton{Text: text, CallbackData: exportCallback{action: action, period: period, revision: revision, requestID: requestID}.encode()}
 	}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
 		{button("📄 Descargar CSV", exportActionCSV), button("📊 Descargar Excel", exportActionExcel)},
@@ -211,7 +217,25 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
-	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations, cs.Registration), exportPreviewKeyboard(period, exportRevision(settings, preview, cs.Registration)))
+	keyboard, err := h.newExportKeyboard(ctx, chatID, period, exportRevision(settings, preview, cs.Registration))
+	if err != nil {
+		h.logger.Error("no se pudo registrar la previa", "chat_id", chatID, "error", err)
+		h.send(ctx, b, chatID, StoreErrorMessage, nil)
+		return
+	}
+	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations, cs.Registration), keyboard)
+}
+
+func (h *handler) newExportKeyboard(ctx context.Context, chatID int64, period, revision string) (*models.InlineKeyboardMarkup, error) {
+	var nonce [8]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	requestID := fmt.Sprintf("%x", nonce)
+	if err := h.deps.Store.CreateExportRequest(ctx, chatID, period, requestID); err != nil {
+		return nil, err
+	}
+	return exportPreviewKeyboard(period, revision, requestID), nil
 }
 
 // formatExportPreview resume en el chat las primeras filas del mismo conjunto que entrará en el ZIP.
@@ -303,7 +327,21 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 		return
 	}
 	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}
+	delivered, err := h.deps.Store.ExportRequestStatus(ctx, press.chatID, callback.period, callback.requestID)
+	if delivered || errors.Is(err, store.ErrExportExpired) || errors.Is(err, store.ErrExportCancelled) {
+		h.editKeyboard(ctx, b, press, noKeyboard())
+		h.answer(ctx, b, query.ID, "Esta exportación ya terminó o no está disponible. Usá /exportar de nuevo.", true)
+		return
+	}
+	if err != nil {
+		h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
+		return
+	}
 	if callback.action == exportActionCancel {
+		if err := h.deps.Store.CancelExport(ctx, press.chatID, callback.period, callback.requestID); err != nil {
+			h.answer(ctx, b, query.ID, "Esta exportación ya terminó o no está disponible. Usá /exportar de nuevo.", true)
+			return
+		}
 		h.editText(ctx, b, press, "❌ Exportación cancelada.", noKeyboard())
 		h.answer(ctx, b, query.ID, "", false)
 		return
@@ -319,7 +357,16 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 	revision := exportRevision(prepared.settings, prepared.preview, prepared.registration)
 	if callback.revision != revision {
 		imp := store.Imputations{IVA: prepared.settings.ImputeIVA, IRE: prepared.settings.ImputeIRE, IRP: prepared.settings.ImputeIRP}
-		h.editText(ctx, b, press, formatExportPreview(callback.period, prepared.preview, imp, prepared.registration), exportPreviewKeyboard(callback.period, revision))
+		keyboard, err := h.newExportKeyboard(ctx, press.chatID, callback.period, revision)
+		if err != nil {
+			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
+			return
+		}
+		if err := h.deps.Store.CancelExport(ctx, press.chatID, callback.period, callback.requestID); err != nil {
+			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
+			return
+		}
+		h.editText(ctx, b, press, formatExportPreview(callback.period, prepared.preview, imp, prepared.registration), keyboard)
 		h.answer(ctx, b, query.ID, "La previa cambió. Revisala y confirmá de nuevo.", true)
 		return
 	}
@@ -357,7 +404,7 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 			h.answer(ctx, b, query.ID, warning, true)
 			return
 		}
-		h.sendConfirmedZIP(ctx, b, press, callback.period, prepared)
+		h.sendConfirmedZIP(ctx, b, press, callback.period, callback.requestID, prepared)
 	}
 }
 
@@ -370,10 +417,19 @@ func (h *handler) sendReviewFile(ctx context.Context, b *bot.Bot, chatID int64, 
 	return err
 }
 
-func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press buttonPress, period string, prepared preparedExport) {
-	seq, err := h.deps.Store.NextExportSeq(ctx, press.chatID, period)
+func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press buttonPress, period, requestID string, prepared preparedExport) {
+	seq, delivered, err := h.deps.Store.ReserveExport(ctx, press.chatID, period, requestID)
+	if errors.Is(err, store.ErrExportExpired) || errors.Is(err, store.ErrExportCancelled) {
+		h.answer(ctx, b, press.queryID, "Esta exportación ya terminó o no está disponible. Usá /exportar de nuevo.", true)
+		return
+	}
 	if err != nil {
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
+		return
+	}
+	if delivered {
+		h.editKeyboard(ctx, b, press, noKeyboard())
+		h.answer(ctx, b, press.queryID, "Este ZIP ya fue enviado.", false)
 		return
 	}
 	export, err := marangatu.BuildPurchases(prepared.invoices, prepared.settings, period, marangatu.FileID(seq))
@@ -389,6 +445,16 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 	})
 	if err != nil {
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
+		return
+	}
+	// Telegram already acknowledged delivery. Record that acknowledgement even
+	// if the caller cancelled; the shared chat lock still prevents a deletion race.
+	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), deliveryRecordTimeout)
+	defer cancelRecord()
+	if err := h.deps.Store.MarkExportDelivered(recordCtx, press.chatID, period, requestID); err != nil {
+		h.logger.Error("el ZIP llegó pero no se pudo registrar su entrega", "chat_id", press.chatID, "periodo", period, "error", err)
+		h.editKeyboard(ctx, b, press, noKeyboard())
+		h.answer(ctx, b, press.queryID, "ZIP enviado. No se pudo registrar la entrega; revisá el archivo recibido.", true)
 		return
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventExportZIP})

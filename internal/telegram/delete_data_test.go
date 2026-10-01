@@ -17,16 +17,17 @@ func TestDeleteMyDataAsksFirstAndOnlyDeletesThisChat(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendPhoto() // un borrador
 	h.sendText("/ruc 80024627-6")
-	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: 999}, Photo: photoUpdate().Message.Photo}})
+	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: 999, Type: models.ChatTypePrivate}, Photo: photoUpdate().Message.Photo}})
 
 	// Act: pedir, cancelar, pedir y confirmar.
 	h.sendText("/borrar_mis_datos")
 	question := h.telegram.lastSent(t)
-	h.pressRaw(deleteDataCancel)
+	h.pressRaw(deleteButtonData(t, question, deleteDataCancel))
 	if cs, _ := h.store.Settings(context.Background(), testChatID); cs.RUC == "" {
 		t.Fatal("cancelar no debería borrar nada")
 	}
-	h.pressRaw(deleteDataConfirm)
+	h.sendText("/borrar_mis_datos")
+	h.pressRaw(deleteButtonData(t, h.telegram.lastSent(t), deleteDataConfirm))
 	edits := h.telegram.byMethod("editMessageText")
 	done := edits[len(edits)-1].text
 

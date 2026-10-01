@@ -88,7 +88,7 @@ func TestCannotDeleteAnotherChatsInvoice(t *testing.T) {
 		Data: "l:s:1:2026-09",
 		Message: models.MaybeInaccessibleMessage{
 			Type:    models.MaybeInaccessibleMessageTypeMessage,
-			Message: &models.Message{ID: 30, Chat: models.Chat{ID: 999}},
+			Message: &models.Message{ID: 30, Chat: models.Chat{ID: 999, Type: models.ChatTypePrivate}},
 		},
 	}})
 	h.sendText("/resumen")

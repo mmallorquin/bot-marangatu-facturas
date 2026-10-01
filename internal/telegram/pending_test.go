@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-telegram/bot/models"
 )
 
 func (h *harness) sendAlbumPhoto(groupID string) {
@@ -60,19 +58,14 @@ func TestPendingSavesOnlyTheInvoicesThatAreReady(t *testing.T) {
 	// Act
 	h.sendText("/pendientes")
 	summary := h.telegram.lastSent(t)
-	h.send(&models.Update{CallbackQuery: &models.CallbackQuery{
-		ID: "cb", Data: pendingSaveCallback,
-		Message: models.MaybeInaccessibleMessage{
-			Type: models.MaybeInaccessibleMessageTypeMessage, Message: &models.Message{ID: 40, Chat: models.Chat{ID: testChatID}},
-		},
-	}})
+	h.pressRaw(callbackDataIn(t, summary.markup, pendingSaveCallback))
 	edits := h.telegram.byMethod("editMessageText")
 	result := edits[len(edits)-1].text
 	h.sendText("/pendientes")
 	after := h.telegram.lastSent(t).text
 
 	// Assert
-	if !strings.Contains(summary.text, "3 facturas sin guardar: 2 cierran y 1 tiene algo para revisar") ||
+	if !strings.Contains(summary.text, "3 facturas sin guardar: 1 cierra y 1 tiene algo para revisar") || !strings.Contains(summary.text, "1 duplicada") ||
 		!strings.Contains(summary.markup, pendingSaveCallback) {
 		t.Errorf("resumen de pendientes:\n%s\n%s", summary.text, summary.markup)
 	}
@@ -80,7 +73,7 @@ func TestPendingSavesOnlyTheInvoicesThatAreReady(t *testing.T) {
 		!strings.Contains(result, "1 tiene algo para revisar") {
 		t.Errorf("resultado:\n%s", result)
 	}
-	if !strings.Contains(after, "2 facturas sin guardar: 1 cierra") {
+	if !strings.Contains(after, "2 facturas sin guardar: 0 cierran") || !strings.Contains(after, "1 duplicada") {
 		t.Errorf("después quedan la duplicada y la que hay que revisar:\n%s", after)
 	}
 }

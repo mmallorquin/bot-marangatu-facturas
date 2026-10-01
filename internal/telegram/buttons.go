@@ -43,12 +43,12 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleRegistrationCallback(ctx, b, query, msg)
 		return
 	}
-	if query.Data == deleteDataConfirm || query.Data == deleteDataCancel {
+	if strings.HasPrefix(query.Data, "z:") {
 		h.handleDeleteData(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}, query.Data)
 		return
 	}
-	if query.Data == pendingSaveCallback {
-		h.saveAllReady(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID})
+	if strings.HasPrefix(query.Data, pendingSaveCallback) {
+		h.handlePendingCallback(ctx, b, query, msg)
 		return
 	}
 	c, err := parseCallback(query.Data)
@@ -99,6 +99,9 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 
 	err := h.deps.Store.Save(ctx, press.chatID, rec.ID)
 	switch {
+	case errors.Is(err, store.ErrInvalidInvoice):
+		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaveBlocked})
+		h.answer(ctx, b, press.queryID, FixBeforeSavingAlert, true)
 	case errors.Is(err, store.ErrDuplicate):
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventDuplicate})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+DuplicateNote, discardOnlyKeyboard(rec.ID))
@@ -109,12 +112,12 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 	default:
 		h.logger.Info("factura guardada", "chat_id", press.chatID, "id", rec.ID, "corregida", rec.Corrected)
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: savedDetail(rec.Corrected)})
-		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, noKeyboard())
+		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, undoKeyboard(rec.ID))
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
 }
 
-// undoAutoSave vuelve a borrador una factura guardada automáticamente y muestra los botones de siempre.
+// undoAutoSave vuelve a borrador una factura guardada y muestra los botones de siempre.
 func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPress) {
 	err := h.deps.Store.Unsave(ctx, press.chatID, press.callback.id)
 	if err != nil {

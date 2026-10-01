@@ -71,7 +71,7 @@ func TestFullUserJourney(t *testing.T) {
 	h.reader.result.Invoice = invoice.Invoice{}
 	h.sendPhoto()
 	expect("no factura", lastText(), "No parece una factura")
-	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID},
+	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Document: &models.Document{FileID: "w", MimeType: "application/msword"}}})
 	expect("Word", lastText(), "PDF")
 
@@ -80,7 +80,7 @@ func TestFullUserJourney(t *testing.T) {
 	electronic.Number = "001-001-0009999"
 	electronic.CDC = "01800005198001001000999922026092012345678901"
 	h.reader.result.Invoice = electronic
-	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID},
+	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Document: &models.Document{FileID: "p", MimeType: "application/pdf"}}})
 	h.press(callback{action: actionSave, id: 3})
 

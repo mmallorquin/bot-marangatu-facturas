@@ -22,6 +22,10 @@ exports/
 *.out
 coverage.*
 
+# Verificación del receptor de despliegues
+__pycache__/
+*.pyc
+
 # Sistema / editores
 .DS_Store
 .vscode/
