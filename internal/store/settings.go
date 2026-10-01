@@ -17,13 +17,29 @@ type Imputations struct {
 	IRP bool // IRP-RSP
 }
 
+// Registration es la obligación de registro elegida según el RUC, no un impuesto.
+// El valor vacío significa que el usuario todavía no la confirmó.
+type Registration string
+
+const (
+	RegistrationMonthly Registration = "955"
+	RegistrationAnnual  Registration = "956"
+)
+
+func (r Registration) Valid() bool {
+	return r == RegistrationMonthly || r == RegistrationAnnual
+}
+
+var ErrRegistrationRUCChanged = errors.New("el RUC cambió o todavía no está configurado")
+
 // ChatSettings es la configuración de un chat.
 type ChatSettings struct {
-	RUC         string
-	Imputations Imputations
-	AutoSave    bool // guardar sin preguntar las facturas que cierran
-	Reminders   bool // recordar exportar cuando termina el período
-	AwaitingRUC bool // configuración guiada: el próximo texto es el RUC
+	RUC          string
+	Imputations  Imputations
+	Registration Registration
+	AutoSave     bool // guardar sin preguntar las facturas que cierran
+	Reminders    bool // recordar exportar cuando termina el período
+	AwaitingRUC  bool // configuración guiada: el próximo texto es el RUC
 }
 
 // defaultSettings es la configuración de un chat que todavía no configuró nada.
@@ -33,9 +49,9 @@ var defaultSettings = ChatSettings{Reminders: true}
 func (s *Store) Settings(ctx context.Context, chatID int64) (ChatSettings, error) {
 	var cs ChatSettings
 	err := s.db.QueryRowContext(ctx, `
-		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc
+		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc, registration
 		FROM chat_settings WHERE chat_id = ?`, chatID).
-		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC)
+		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC, &cs.Registration)
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultSettings, nil
 	}
@@ -49,9 +65,34 @@ func (s *Store) Settings(ctx context.Context, chatID int64) (ChatSettings, error
 func (s *Store) SetRUC(ctx context.Context, chatID int64, ruc string) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO chat_settings (chat_id, ruc) VALUES (?, ?)
-		ON CONFLICT (chat_id) DO UPDATE SET ruc = excluded.ruc`, chatID, ruc)
+		ON CONFLICT (chat_id) DO UPDATE SET
+			registration = CASE WHEN chat_settings.ruc = excluded.ruc THEN chat_settings.registration ELSE '' END,
+			ruc = excluded.ruc`, chatID, ruc)
 	if err != nil {
 		return fmt.Errorf("guardando el RUC: %w", err)
+	}
+	return nil
+}
+
+// SetRegistration solo guarda para el RUC que el usuario vio. La condición del
+// UPDATE rechaza también un botón viejo si el RUC cambia durante la operación.
+func (s *Store) SetRegistration(ctx context.Context, chatID int64, ruc string, registration Registration) error {
+	if !registration.Valid() {
+		return errors.New("registro inválido: elegí 955 o 956")
+	}
+	if err := invoice.ValidateRUC(ruc); err != nil {
+		return ErrRegistrationRUCChanged
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE chat_settings SET registration = ? WHERE chat_id = ? AND ruc = ?`, registration, chatID, ruc)
+	if err != nil {
+		return fmt.Errorf("guardando el registro: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("comprobando el registro: %w", err)
+	}
+	if rows == 0 {
+		return ErrRegistrationRUCChanged
 	}
 	return nil
 }
@@ -163,9 +204,9 @@ func (s *Store) NextExportSeq(ctx context.Context, chatID int64, period string) 
 
 // ReminderCandidate es un chat al que conviene recordarle que exporte un período.
 type ReminderCandidate struct {
-	ChatID      int64
-	Invoices    int // facturas guardadas del período
-	Imputations Imputations
+	ChatID       int64
+	Invoices     int // facturas guardadas del período
+	Registration Registration
 }
 
 // ReminderCandidates devuelve los chats con facturas guardadas en el período (AAAA-MM o AAAA)
@@ -176,8 +217,7 @@ func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]Remind
 		first, last = period+"-01", period+"-12"
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT i.chat_id, COUNT(*),
-			COALESCE(cs.impute_iva, 0), COALESCE(cs.impute_ire, 0), COALESCE(cs.impute_irp, 0)
+		SELECT i.chat_id, COUNT(*), COALESCE(cs.registration, '')
 		FROM invoices i
 		LEFT JOIN chat_settings cs ON cs.chat_id = i.chat_id
 		WHERE i.status = ? AND i.period BETWEEN ? AND ?
@@ -194,7 +234,7 @@ func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]Remind
 	var candidates []ReminderCandidate
 	for rows.Next() {
 		var c ReminderCandidate
-		if err := rows.Scan(&c.ChatID, &c.Invoices, &c.Imputations.IVA, &c.Imputations.IRE, &c.Imputations.IRP); err != nil {
+		if err := rows.Scan(&c.ChatID, &c.Invoices, &c.Registration); err != nil {
 			return nil, fmt.Errorf("buscando a quién recordar: %w", err)
 		}
 		candidates = append(candidates, c)

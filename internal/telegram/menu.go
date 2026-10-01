@@ -18,7 +18,10 @@ func ConfigureMenu(ctx context.Context, b *bot.Bot) error {
 		{Command: "exportar", Description: "Revisar las facturas y generar el ZIP"},
 		{Command: "ruc", Description: "Consultar o configurar tu RUC"},
 		{Command: "imputar", Description: "Elegir impuestos: IVA, IRE o IRP"},
+		{Command: "registro", Description: "Elegir registro 955 mensual o 956 anual"},
 		{Command: "autoguardar", Description: "Guardar solas las facturas que cierran"},
+		{Command: "recordatorios", Description: "Activar o desactivar avisos de exportación"},
+		{Command: "borrar_mis_datos", Description: "Borrar tus datos del bot con confirmación"},
 		{Command: "cancelar", Description: "Cancelar una corrección pendiente"},
 		{Command: "start", Description: "Ver cómo usar el bot"},
 	}})

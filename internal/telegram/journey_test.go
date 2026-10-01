@@ -97,18 +97,20 @@ func TestFullUserJourney(t *testing.T) {
 	h.sendText("/exportar")
 	expect("exportar sin imputar", lastText(), "/imputar")
 	h.sendText("/imputar irp")
-	expect("/imputar irp", lastText(), "IRP-RSP", "/exportar 2026")
+	expect("/imputar irp", lastText(), "IRP-RSP", "/registro")
+	h.sendText("/registro 955")
 
 	// 9. Exportación mensual: previa, CSV y ZIP (la electrónica queda afuera).
 	h.sendText("/exportar")
-	expect("previa mensual", lastText(), "1 comprobante listo para Marangatu", "001-001-0009999 — es electrónica", "/exportar 2026")
-	h.pressRaw("x:c:2026-09")
-	h.pressRaw("x:z:2026-09")
+	expect("previa mensual", lastText(), "1 comprobante listo para Marangatu", "001-001-0009999 — es electrónica", "955")
+	h.pressExport(t, "x:c:2026-09")
+	h.pressExport(t, "x:z:2026-09")
 
-	// 10. Exportación anual.
+	// 10. Configura el registro anual para ejercitar también esa exportación.
+	h.sendText("/registro 956")
 	h.sendText("/exportar 2026")
 	expect("previa anual", lastText(), "Previa — 2026", "Archivo anual")
-	h.pressRaw("x:z:2026")
+	h.pressExport(t, "x:z:2026")
 
 	docs := h.telegram.byMethod("sendDocument")
 	var names []string

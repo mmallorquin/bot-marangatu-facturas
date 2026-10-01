@@ -105,29 +105,49 @@ func (h *handler) handleImputeCallback(ctx context.Context, b *bot.Bot, query *m
 			return
 		}
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventImpute})
-		h.editText(ctx, b, press, h.imputationsSaved(imp)+"\n\n"+readyToUseMessage, noKeyboard())
+		message, keyboard := h.imputationReply(ctx, press.chatID, imp)
+		h.editText(ctx, b, press, message, keyboard)
 		h.answer(ctx, b, press.queryID, "", false)
 	default:
 		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 	}
 }
 
-const readyToUseMessage = "Todo listo 🎉 Mandame las fotos o PDF de tus facturas y, a fin de mes, /exportar."
+const readyToUseMessage = "Todo listo 🎉 Mandame las fotos o PDF de tus facturas y usá /exportar para revisarlas."
 
-// imputationsSaved es la confirmación de los impuestos elegidos, con el aviso del anual si aplica.
-func (h *handler) imputationsSaved(imp store.Imputations) string {
+// imputationReply no deduce la obligación de los impuestos elegidos.
+func (h *handler) imputationReply(ctx context.Context, chatID int64, imp store.Imputations) (string, *models.InlineKeyboardMarkup) {
 	message := "✅ Tus compras se van a imputar a: " + formatImputations(imp)
-	if filesAnnually(imp.IRP, imp.IVA, imp.IRE) {
-		message += "\n\n" + annualHint(annualYearToFile(h.deps.Now()))
+	cs, err := h.deps.Store.Settings(ctx, chatID)
+	if err != nil {
+		return message + "\n\n" + StoreErrorMessage, noKeyboard()
 	}
-	return message
+	if cs.RUC == "" {
+		return message + "\n\n" + askRUCMessage, noKeyboard()
+	}
+	if !cs.Registration.Valid() {
+		return message + "\n\n" + registrationPrompt, registrationKeyboard(cs.RUC)
+	}
+	message += "\nRegistro configurado: " + registrationLabel(cs.Registration)
+	if cs.Registration == store.RegistrationAnnual {
+		message += "\n\n" + annualHint(annualYearToFile(h.deps.Now().In(reminderLocation)))
+	}
+	return message + "\n\n" + readyToUseMessage, noKeyboard()
 }
 
 // welcome muestra la bienvenida y, si falta el RUC, empieza la configuración guiada.
 func (h *handler) welcome(ctx context.Context, b *bot.Bot, chatID int64) {
 	h.send(ctx, b, chatID, WelcomeMessage, nil)
 	cs, err := h.deps.Store.Settings(ctx, chatID)
-	if err != nil || cs.RUC != "" {
+	if err != nil {
+		return
+	}
+	if cs.RUC != "" {
+		if cs.Imputations == (store.Imputations{}) {
+			h.askImputations(ctx, b, chatID)
+		} else if !cs.Registration.Valid() {
+			h.askRegistration(ctx, b, chatID, cs)
+		}
 		return
 	}
 	if err := h.deps.Store.SetAwaitingRUC(ctx, chatID, true); err != nil {
@@ -174,7 +194,11 @@ func (h *handler) saveRUC(ctx context.Context, b *bot.Bot, chatID int64, ruc str
 		h.logger.Error("no se pudo cerrar la configuración", "chat_id", chatID, "error", err)
 	}
 	h.send(ctx, b, chatID, "✅ RUC guardado: "+ruc, nil)
-	if cs, err := h.deps.Store.Settings(ctx, chatID); err == nil && cs.Imputations == (store.Imputations{}) {
-		h.askImputations(ctx, b, chatID)
+	if cs, err := h.deps.Store.Settings(ctx, chatID); err == nil {
+		if cs.Imputations == (store.Imputations{}) {
+			h.askImputations(ctx, b, chatID)
+		} else if !cs.Registration.Valid() {
+			h.askRegistration(ctx, b, chatID, cs)
+		}
 	}
 }

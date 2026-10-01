@@ -16,8 +16,7 @@ import (
 const (
 	remindersCommand = "/recordatorios"
 
-	// El recordatorio mensual sale desde el día 3 a las 9:00: los vencimientos de la RG 90
-	// son más adelante en el mes, según el último dígito del RUC.
+	// Aviso de exportación, no vencimiento oficial: desde el día 3 a las 9:00.
 	monthlyReminderDay = 3
 	// El anual (IRP-RSP) se presenta hasta febrero; se recuerda desde el 15 de enero.
 	annualReminderDay = 15
@@ -73,12 +72,12 @@ func (h *handler) sendDueReminders(ctx context.Context, b *bot.Bot, now time.Tim
 	monthly, annual := duePeriods(now)
 	if monthly != "" {
 		h.remind(ctx, b, monthly, func(c store.ReminderCandidate) bool {
-			return !filesAnnually(c.Imputations.IRP, c.Imputations.IVA, c.Imputations.IRE)
+			return c.Registration == store.RegistrationMonthly
 		})
 	}
 	if annual != "" {
 		h.remind(ctx, b, annual, func(c store.ReminderCandidate) bool {
-			return filesAnnually(c.Imputations.IRP, c.Imputations.IVA, c.Imputations.IRE)
+			return c.Registration == store.RegistrationAnnual
 		})
 	}
 }
@@ -128,7 +127,10 @@ func (h *handler) setReminders(ctx context.Context, b *bot.Bot, chatID int64, te
 		}
 		state := "desactivados."
 		if cs.Reminders {
-			state = "activados: te aviso cuando termina el mes si tenés facturas sin exportar."
+			state = "activados: te aviso según tu /registro si tenés facturas sin exportar. No es un aviso de vencimiento oficial."
+			if !cs.Registration.Valid() {
+				state += " Elegí 955 o 956 con /registro para recibir avisos."
+			}
 		}
 		h.send(ctx, b, chatID, "Los recordatorios están "+state+"\n\nPara cambiarlo: /recordatorios si o /recordatorios no", nil)
 		return
@@ -149,7 +151,7 @@ func (h *handler) setReminders(ctx context.Context, b *bot.Bot, chatID int64, te
 		return
 	}
 	if on {
-		h.send(ctx, b, chatID, "✅ Listo: te aviso cuando termina el mes si tenés facturas sin exportar.", nil)
+		h.send(ctx, b, chatID, "✅ Listo: los avisos de exportación están activados según tu /registro. Si todavía no elegiste 955 o 956, hacelo con /registro. No son avisos de vencimiento oficial.", nil)
 		return
 	}
 	h.send(ctx, b, chatID, "✅ Listo: no te mando más recordatorios.", nil)

@@ -8,16 +8,25 @@ de la DNIT (versión 1, junio 2021), aplicado en `internal/marangatu`.
 - `.txt` delimitado por **tabulaciones** (también se admite `.csv` delimitado por comas; usamos TXT para que las comas en razones sociales no rompan el archivo).
 - UTF-8, **sin encabezado**, máximo **5.000 filas**.
 - Se sube **comprimido en ZIP** con el mismo nombre que el archivo de adentro. El período depende de la obligación:
-  - **Mensual (obligación 955):** `<RUC sin DV>_REG_<MMAAAA>_<ID de hasta 5 caracteres>.zip` → ej. `80024627_REG_092026_V0001.zip`. Es el que genera `/exportar` o `/exportar 09/2026`.
-  - **Anual (obligación 956):** `<RUC sin DV>_REG_<AAAA>_<ID>.zip` → ej. `80024627_REG_2026_V0001.zip`. Lo usa quien registra sus comprobantes una vez al año, como el IRP-RSP anual. Marangatu no acepta el archivo de un mes en esa obligación. Lo genera `/exportar 2026`, con todas las facturas guardadas del año.
+  - **Mensual (obligación 955):** `<RUC sin DV>_REG_<MMAAAA>_<ID de hasta 5 caracteres>.zip` → ej. `80024627_REG_092026_V0001.zip`. Con `/registro 955`, lo genera `/exportar` o `/exportar 09/2026`.
+  - **Anual (obligación 956):** `<RUC sin DV>_REG_<AAAA>_<ID>.zip` → ej. `80024627_REG_2026_V0001.zip`. Lo usa quien registra sus comprobantes una vez al año, como el IRP-RSP anual. Marangatu no acepta el archivo de un mes en esa obligación. Con `/registro 956`, lo genera `/exportar 2026`, con todas las facturas guardadas del año.
 - Cada período (cada mes y cada año) tiene su propia numeración de archivos: V0001, V0002…
-- **No** se incluyen comprobantes electrónicos (e-Kuatia, con CDC) ni virtuales: Marangatu los obtiene solo.
+- **No** se incluyen comprobantes electrónicos (e-Kuatia, con CDC) ni virtuales: se obtienen en Marangatu. Revisá su imputación; no siempre es automática.
 - Los RUC van **sin dígito verificador**.
 
 Antes de generar el ZIP, el bot permite descargar una previa en CSV o Excel con encabezados.
 Ambas previas contienen los mismos 20 campos y las mismas filas que el archivo oficial, pero son
 solo para revisión: **no se suben a Marangatu**. El único archivo de importación que entrega el bot
 es el ZIP con el TXT sin encabezado.
+
+La elección de `/registro` es independiente de `/imputar` y debe coincidir con las obligaciones
+activas del RUC que el usuario consulta en Marangatu. El bot rechaza el ZIP sin elección o con
+período incompatible, pero permite archivos de revisión. Cambiar de RUC borra solo esa elección,
+no las facturas guardadas.
+
+Después de importar, revisá los registros y su imputación y confirmá el período para obtener
+el **Talón de Presentación**. La importación sola no confirma la presentación. Las reglas
+posteriores a esta especificación y los pendientes del bot están en [dnit-vigencia.md](dnit-vigencia.md).
 
 ## Registro de compras (tipo 2): 20 campos en este orden
 

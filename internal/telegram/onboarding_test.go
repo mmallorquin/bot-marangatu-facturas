@@ -43,11 +43,15 @@ func TestGuidedSetupAsksRUCThenImputationsWithButtons(t *testing.T) {
 	if len(marked) == 0 || !strings.Contains(marked[len(marked)-1].markup, "☑️ IRP-RSP") {
 		t.Errorf("el botón tocado queda marcado: %+v", marked)
 	}
-	if !strings.Contains(done, "IRP-RSP") || !strings.Contains(done, "/exportar 2026") || !strings.Contains(done, "Todo listo") {
+	if !strings.Contains(done, "IRP-RSP") || !strings.Contains(done, "/registro") || strings.Contains(done, "Todo listo") {
 		t.Errorf("confirmación: %q", done)
 	}
+	if !strings.Contains(edits[len(edits)-1].markup, "reg:956:31c37163ec1d34a3a76e9ea0e5394089") {
+		t.Errorf("debe pedir el registro después de los impuestos: %+v", edits[len(edits)-1])
+	}
+	h.pressRaw("reg:956:31c37163ec1d34a3a76e9ea0e5394089")
 	cs, _ := h.store.Settings(context.Background(), testChatID)
-	if cs.RUC != "80024627-6" || cs.Imputations != (store.Imputations{IRP: true}) || cs.AwaitingRUC {
+	if cs.RUC != "80024627-6" || cs.Imputations != (store.Imputations{IRP: true}) || cs.AwaitingRUC || cs.Registration != store.RegistrationAnnual {
 		t.Errorf("configuración = %+v", cs)
 	}
 }
@@ -55,6 +59,8 @@ func TestGuidedSetupAsksRUCThenImputationsWithButtons(t *testing.T) {
 func TestStartWithRUCAlreadyConfiguredDoesNotAskAgain(t *testing.T) {
 	h := newHarness(t)
 	h.sendText("/ruc 80024627-6")
+	h.sendText("/imputar irp")
+	h.sendText("/registro 956")
 
 	h.sendText("/start")
 

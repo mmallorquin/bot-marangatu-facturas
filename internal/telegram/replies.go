@@ -17,14 +17,16 @@ const (
 		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
 		"/pendientes — guardar de una vez las leídas que cierran\n" +
 		"/autoguardar si — guardar solas las facturas que cierran\n" +
-		"/recordatorios no — no recibir el aviso de exportar a fin de mes\n" +
+		"/recordatorios no — no recibir avisos de exportación\n" +
 		"/borrar_mis_datos — borrar todo lo que guardaste en el bot\n" +
-		"/exportar — revisar el mes y generar el ZIP para Marangatu\n" +
-		"/exportar 2026 — archivo del año (IRP-RSP anual)\n" +
+		"/exportar — revisar el período según tu /registro\n" +
+		"/exportar 2026 — revisar el año (ZIP para registro 956)\n" +
 		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
 		"/imputar — a qué impuestos imputás tus compras (iva, ire, irp)\n" +
+		"/registro — tu obligación 955 mensual o 956 anual\n" +
 		"/cancelar — cancelar una corrección\n\n" +
-		"Tocá Menú junto al campo de mensaje para elegir un comando."
+		"Tocá Menú junto al campo de mensaje para elegir un comando.\n\n" +
+		"El bot no presenta tus registros ante la DNIT.\n" + presentationHint + "\n" + retentionHint
 	HelpMessage              = "Mandame una foto de la factura 📸 o el PDF 📄 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
 	ReadingAlbumMessage      = "⏳ Leyendo tus facturas… Cuando terminen, con /pendientes guardás de una vez las que cierran."
@@ -34,12 +36,13 @@ const (
 	TooLargeMessage          = "El archivo es muy pesado (máximo 10 MB). Mandá la factura como foto normal 📸"
 	RetakeTip                = "📸 Tip: sacá la foto de nuevo con buena luz, de frente y con la factura completa."
 
-	SavedNote             = "💾 Guardada."
-	DuplicateNote         = "⚠️ Ya tenías guardada esta factura."
-	AutoSavedNote         = "💾 Guardada automáticamente. Si algo no está bien, tocá Deshacer."
-	UndoneNote            = "↩️ Listo, no está guardada. Corregila, guardala o descartala."
-	AlreadySavedNote      = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
-	ElectronicNote        = "ℹ️ Es una factura electrónica (tiene CDC): Marangatu ya la tiene, así que no va en el ZIP. Guardala igual para verla en tu /resumen."
+	SavedNote        = "💾 Guardada."
+	DuplicateNote    = "⚠️ Ya tenías guardada esta factura."
+	AutoSavedNote    = "💾 Guardada automáticamente. Si algo no está bien, tocá Deshacer."
+	UndoneNote       = "↩️ Listo, no está guardada. Corregila, guardala o descartala."
+	AlreadySavedNote = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
+	ElectronicNote   = "ℹ️ Es una factura electrónica (tiene CDC): no va en el ZIP. Guardala igual para verla en tu /resumen. " +
+		"Obtenela en Marangatu y revisá su imputación: si no se imputó automáticamente, debés hacerlo allí."
 	DiscardedMessage      = "🗑️ Factura descartada."
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."
@@ -50,6 +53,13 @@ const (
 	StoreErrorMessage     = "😕 No pude guardar los cambios. Probá de nuevo."
 	SavedAnswer           = "✅ Guardada"
 	retryOrCancelHint     = "Probá de nuevo o escribí /cancelar."
+
+	// RG DNIT 12/2024: importar o generar el ZIP no confirma la presentación.
+	presentationHint = "⚠️ Importar el ZIP no confirma la presentación. Revisá los registros y su imputación en Marangatu; " +
+		"después debés confirmar el período para obtener el Talón de Presentación."
+	retentionHint  = "Conservá los comprobantes físicos por el plazo de prescripción del impuesto."
+	noMovementHint = "Que el bot no tenga facturas no significa que no hubo operaciones. " +
+		"Si realmente no tuviste movimiento y te corresponde presentar, confirmalo como «sin movimiento» en Marangatu."
 )
 
 // Comandos del bot.

@@ -161,6 +161,7 @@ func Open(path string) (*Store, error) {
 // addedColumns son columnas que se agregaron después de crear la tabla. Las bases existentes
 // las reciben al abrirse, sin perder datos.
 var addedColumns = []struct{ table, column, definition string }{
+	{"chat_settings", "registration", "TEXT NOT NULL DEFAULT '' CHECK (registration IN ('', '955', '956'))"},
 	{"chat_settings", "auto_save", "INTEGER NOT NULL DEFAULT 0"},    // guardar solo las que cierran
 	{"chat_settings", "reminders", "INTEGER NOT NULL DEFAULT 1"},    // recordatorio de exportar
 	{"chat_settings", "awaiting_ruc", "INTEGER NOT NULL DEFAULT 0"}, // configuración guiada: el próximo texto es el RUC

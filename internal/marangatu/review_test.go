@@ -110,3 +110,31 @@ func TestReviewXLSXShowsTheSameFieldsAsCSV(t *testing.T) {
 		}
 	}
 }
+
+func TestCSVNeutralizesFormulaNamesWithoutChangingOfficialFields(t *testing.T) {
+	for _, name := range []string{"=1+1", "+1+1", "-1+1", "@SUM(1)", "  =1+1"} {
+		t.Run(name, func(t *testing.T) {
+			inv := factura("001-001-0001234")
+			inv.IssuerName = name
+			preview, err := PreviewPurchases([]invoice.Invoice{inv}, settings, "2026-09")
+			if err != nil {
+				t.Fatal(err)
+			}
+			file, err := preview.CSV()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, err := csv.NewReader(bytes.NewReader(file.Data)).ReadAll()
+			if err != nil {
+				t.Fatal(err)
+			}
+			official := purchaseFields(inv, settings)[3]
+			if rows[1][3] != "'"+official {
+				t.Fatalf("unsafe field %q", rows[1][3])
+			}
+			if purchaseFields(inv, settings)[3] != official {
+				t.Fatal("official field changed")
+			}
+		})
+	}
+}

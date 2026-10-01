@@ -117,7 +117,7 @@ func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 	default:
 		t.Fatal("no registró los comandos para elegirlos en Telegram")
 	}
-	for _, name := range []string{"start", "resumen", "exportar", "ruc", "imputar", "cancelar"} {
+	for _, name := range []string{"start", "resumen", "exportar", "ruc", "imputar", "registro", "cancelar", "recordatorios", "borrar_mis_datos"} {
 		found := false
 		for _, command := range commands {
 			if command.Command == name && command.Description != "" {

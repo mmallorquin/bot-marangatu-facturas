@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -36,6 +37,80 @@ func TestSettingsStartEmptyAndArePerChat(t *testing.T) {
 	}
 	if other, _ := s.Settings(ctx, chatB); other != (ChatSettings{Reminders: true}) {
 		t.Errorf("el chat B no debería tener configuración: %+v", other)
+	}
+}
+
+func TestRegistrationPersistsPerChatAndPreservesData(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "facturas.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.SetRUC(ctx, chatA, "80024627-6"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetImputations(ctx, chatA, Imputations{IRP: true}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.CreateDraft(ctx, chatA, newDraft(sampleInvoice("001-001-0000001", 110_000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(ctx, chatA, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.NextExportSeq(ctx, chatA, "2026"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRegistration(ctx, chatA, "80024627-6", RegistrationAnnual); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = reopened
+	settings, err := s.Settings(ctx, chatA)
+	if err != nil || settings.Registration != RegistrationAnnual || settings.RUC != "80024627-6" || !settings.Imputations.IRP {
+		t.Fatalf("registro persistido: %+v, %v", settings, err)
+	}
+	other, err := s.Settings(ctx, chatB)
+	if err != nil || other.Registration != "" {
+		t.Errorf("la selección no puede pasar a otro chat: %+v, %v", other, err)
+	}
+	if invoices, err := s.SavedInvoices(ctx, chatA, "2026"); err != nil || len(invoices) != 1 || invoices[0].Total != 110_000 {
+		t.Errorf("facturas preservadas: %+v, %v", invoices, err)
+	}
+	if seq, err := s.NextExportSeq(ctx, chatA, "2026"); err != nil || seq != 2 {
+		t.Errorf("exportaciones preservadas: %d, %v", seq, err)
+	}
+}
+
+func TestRegistrationStorageRejectsStaleRUCEvenWithoutHandler(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+	if err := s.SetRUC(ctx, chatA, "80024627-6"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRegistration(ctx, chatA, "80024627-6", RegistrationAnnual); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRUC(ctx, chatA, "80000519-8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetRegistration(ctx, chatA, "80024627-6", RegistrationMonthly); !errors.Is(err, ErrRegistrationRUCChanged) {
+		t.Errorf("un RUC viejo debe rechazarse en la base: %v", err)
+	}
+	if err := s.SetRegistration(ctx, chatA, "80000519-8", Registration("957")); err == nil {
+		t.Error("una obligación no soportada debe rechazarse en la base")
+	}
+	if cs, err := s.Settings(ctx, chatA); err != nil || cs.Registration != "" {
+		t.Errorf("no se debe restaurar una selección vieja o inválida: %+v, %v", cs, err)
 	}
 }
 
@@ -165,5 +240,9 @@ func TestOpenMigratesADatabaseCreatedBeforeTheNewColumns(t *testing.T) {
 	got, err := s.Settings(context.Background(), chatA)
 	if err != nil || got.RUC != "80024627-6" || !got.Imputations.IVA || got.AutoSave || !got.Reminders {
 		t.Errorf("configuración migrada = %+v, error = %v", got, err)
+	}
+	var registration string
+	if err := s.db.QueryRow(`SELECT registration FROM chat_settings WHERE chat_id = 111`).Scan(&registration); err != nil || registration != "" {
+		t.Errorf("la migración debe dejar el registro sin elegir, no deducirlo: %q, %v", registration, err)
 	}
 }

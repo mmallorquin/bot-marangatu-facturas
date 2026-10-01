@@ -39,6 +39,10 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.handleImputeCallback(ctx, b, query, msg)
 		return
 	}
+	if strings.HasPrefix(query.Data, registrationCallbackPrefix+":") {
+		h.handleRegistrationCallback(ctx, b, query, msg)
+		return
+	}
 	if query.Data == deleteDataConfirm || query.Data == deleteDataCancel {
 		h.handleDeleteData(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}, query.Data)
 		return

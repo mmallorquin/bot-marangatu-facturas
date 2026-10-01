@@ -46,6 +46,7 @@ type InvoiceStore interface {
 	Settings(ctx context.Context, chatID int64) (store.ChatSettings, error)
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
+	SetRegistration(ctx context.Context, chatID int64, ruc string, registration store.Registration) error
 	NextExportSeq(ctx context.Context, chatID int64, period string) (int, error)
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 }
@@ -130,6 +131,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 		return
 	case imputeCommand:
 		h.setImputations(ctx, b, chatID, text)
+		return
+	case registrationCommand:
+		h.setRegistration(ctx, b, chatID, text)
 		return
 	case exportCommand:
 		h.exportMonth(ctx, b, chatID, text)

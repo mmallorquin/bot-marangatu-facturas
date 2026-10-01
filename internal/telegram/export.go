@@ -3,11 +3,14 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -36,29 +39,34 @@ const (
 )
 
 type exportCallback struct {
-	action string
-	period string
+	action   string
+	period   string
+	revision string
 }
 
 func (c exportCallback) encode() string {
-	return fmt.Sprintf("%s:%s:%s", exportCallbackPrefix, c.action, c.period)
+	return fmt.Sprintf("%s:%s:%s:%s", exportCallbackPrefix, c.action, c.period, c.revision)
 }
 
 func parseExportCallback(data string) (exportCallback, error) {
 	parts := strings.Split(data, ":")
-	if len(parts) != 3 || parts[0] != exportCallbackPrefix ||
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] != exportCallbackPrefix ||
 		!slices.Contains([]string{exportActionCSV, exportActionExcel, exportActionZIP, exportActionCancel}, parts[1]) {
 		return exportCallback{}, errInvalidCallback
 	}
 	if _, err := marangatu.ParsePeriod(parts[2]); err != nil {
 		return exportCallback{}, errInvalidCallback
 	}
-	return exportCallback{action: parts[1], period: parts[2]}, nil
+	c := exportCallback{action: parts[1], period: parts[2]}
+	if len(parts) == 4 {
+		c.revision = parts[3]
+	}
+	return c, nil
 }
 
-func exportPreviewKeyboard(period string) *models.InlineKeyboardMarkup {
+func exportPreviewKeyboard(period, revision string) *models.InlineKeyboardMarkup {
 	button := func(text, action string) models.InlineKeyboardButton {
-		return models.InlineKeyboardButton{Text: text, CallbackData: exportCallback{action: action, period: period}.encode()}
+		return models.InlineKeyboardButton{Text: text, CallbackData: exportCallback{action: action, period: period, revision: revision}.encode()}
 	}
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{
 		{button("📄 Descargar CSV", exportActionCSV), button("📊 Descargar Excel", exportActionExcel)},
@@ -145,12 +153,13 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, h.imputationsSaved(imp), nil)
+	message, keyboard := h.imputationReply(ctx, chatID, imp)
+	h.send(ctx, b, chatID, message, keyboard)
 }
 
 // exportMonth muestra una previa; el ZIP se arma recién cuando el usuario lo confirma.
 func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, text string) {
-	period, err := parsePeriod(text, h.deps.Now())
+	period, err := parsePeriod(text, h.deps.Now().In(reminderLocation))
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
@@ -169,6 +178,9 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		h.askImputations(ctx, b, chatID)
 		return
 	}
+	if len(strings.Fields(text)) == 1 && cs.Registration == store.RegistrationAnnual {
+		period = annualYearToFile(h.deps.Now().In(reminderLocation))
+	}
 
 	invoices, err := h.deps.Store.SavedInvoices(ctx, chatID, period)
 	if err != nil {
@@ -177,7 +189,7 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		return
 	}
 	if len(invoices) == 0 {
-		h.send(ctx, b, chatID, fmt.Sprintf("No hay facturas guardadas de %s.", periodTitle(period)), nil)
+		h.send(ctx, b, chatID, fmt.Sprintf("No hay facturas guardadas de %s.\n\n%s", periodTitle(period), noMovementHint), nil)
 		return
 	}
 
@@ -190,8 +202,8 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		if len(invoices) == 1 {
 			noun = "comprobante guardado"
 		}
-		message := fmt.Sprintf("📋 %s\n\nTenés %d %s, pero ninguno entra en el ZIP.\n\n%s\n\nSiguen guardados y aparecen en /resumen.",
-			periodTitle(period), len(invoices), noun, formatSkipped(preview.Skipped))
+		message := fmt.Sprintf("📋 %s\n\nTenés %d %s, pero ninguno entra en el ZIP.\n\n%s\n\nSiguen guardados y aparecen en /resumen.\n\n%s\n%s",
+			periodTitle(period), len(invoices), noun, formatSkipped(preview.Skipped), presentationHint, retentionHint)
 		h.send(ctx, b, chatID, message, nil)
 		return
 	}
@@ -199,11 +211,11 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
-	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations), exportPreviewKeyboard(period))
+	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations, cs.Registration), exportPreviewKeyboard(period, exportRevision(settings, preview, cs.Registration)))
 }
 
 // formatExportPreview resume en el chat las primeras filas del mismo conjunto que entrará en el ZIP.
-func formatExportPreview(period string, preview marangatu.Preview, imp store.Imputations) string {
+func formatExportPreview(period string, preview marangatu.Preview, imp store.Imputations, registration store.Registration) string {
 	noun := "comprobantes"
 	if len(preview.Invoices) == 1 {
 		noun = "comprobante"
@@ -214,6 +226,7 @@ func formatExportPreview(period string, preview marangatu.Preview, imp store.Imp
 	fmt.Fprintf(&text, "%d %s %s para Marangatu\n", len(preview.Invoices), noun, readyWord(len(preview.Invoices)))
 	fmt.Fprintf(&text, "Total: %s Gs\n", formatGs(preview.Total))
 	fmt.Fprintf(&text, "Imputación: %s\n", formatImputations(imp))
+	fmt.Fprintf(&text, "Registro configurado: %s\n", registrationLabel(registration))
 
 	for index, inv := range preview.Invoices[:min(len(preview.Invoices), exportPreviewLimit)] {
 		fmt.Fprintf(&text, "\n%d. %s · %s · %s · %s · %s Gs",
@@ -225,8 +238,13 @@ func formatExportPreview(period string, preview marangatu.Preview, imp store.Imp
 	if skipped := formatSkipped(preview.Skipped); skipped != "" {
 		text.WriteString("\n\n" + skipped)
 	}
-	if note := periodNote(period, filesAnnually(imp.IRP, imp.IVA, imp.IRE)); note != "" {
+	if note := periodNote(period, registration == store.RegistrationAnnual); note != "" {
 		text.WriteString("\n\n" + note)
+	}
+	if !registration.Valid() {
+		text.WriteString("\n\nAntes de generar el ZIP, elegí tu obligación con /registro. CSV y Excel siguen disponibles para revisar.")
+	} else if warning := wrongRegistrationPeriod(registration, period); warning != "" {
+		text.WriteString("\n\n" + warning)
 	}
 	return text.String()
 }
@@ -242,9 +260,21 @@ func previewIssuer(name string) string {
 }
 
 type preparedExport struct {
-	settings marangatu.Settings
-	invoices []invoice.Invoice
-	preview  marangatu.Preview
+	settings     marangatu.Settings
+	invoices     []invoice.Invoice
+	preview      marangatu.Preview
+	registration store.Registration
+}
+
+// exportRevision binds every action to the data and settings shown in its preview.
+func exportRevision(settings marangatu.Settings, preview marangatu.Preview, registration store.Registration) string {
+	data, _ := json.Marshal(struct {
+		Settings     marangatu.Settings
+		Preview      marangatu.Preview
+		Registration store.Registration
+	}{settings, preview, registration})
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:16])
 }
 
 func (h *handler) prepareExport(ctx context.Context, chatID int64, period string) (preparedExport, error) {
@@ -263,7 +293,7 @@ func (h *handler) prepareExport(ctx context.Context, chatID int64, period string
 	if err != nil {
 		return preparedExport{}, err
 	}
-	return preparedExport{settings: settings, invoices: invoices, preview: preview}, nil
+	return preparedExport{settings: settings, invoices: invoices, preview: preview, registration: cs.Registration}, nil
 }
 
 func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery, msg *models.Message) {
@@ -283,6 +313,14 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 	if err != nil {
 		h.logger.Error("no se pudo reconstruir la exportación", "chat_id", press.chatID, "periodo", callback.period, "error", err)
 		h.answer(ctx, b, query.ID, "La previa ya no está disponible. Usá /exportar de nuevo.", true)
+		return
+	}
+
+	revision := exportRevision(prepared.settings, prepared.preview, prepared.registration)
+	if callback.revision != revision {
+		imp := store.Imputations{IVA: prepared.settings.ImputeIVA, IRE: prepared.settings.ImputeIRE, IRP: prepared.settings.ImputeIRP}
+		h.editText(ctx, b, press, formatExportPreview(callback.period, prepared.preview, imp, prepared.registration), exportPreviewKeyboard(callback.period, revision))
+		h.answer(ctx, b, query.ID, "La previa cambió. Revisala y confirmá de nuevo.", true)
 		return
 	}
 
@@ -310,6 +348,15 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventExportReview, Detail: store.EventDetailExcel})
 		h.answer(ctx, b, query.ID, "Excel listo", false)
 	case exportActionZIP:
+		if !prepared.registration.Valid() {
+			h.send(ctx, b, press.chatID, "Antes de generar el ZIP, elegí tu obligación con /registro.\n\n"+registrationPrompt, registrationKeyboard(prepared.settings.RUC))
+			h.answer(ctx, b, query.ID, "Falta elegir el registro 955 o 956 con /registro.", true)
+			return
+		}
+		if warning := wrongRegistrationPeriod(prepared.registration, callback.period); warning != "" {
+			h.answer(ctx, b, query.ID, warning, true)
+			return
+		}
 		h.sendConfirmedZIP(ctx, b, press, callback.period, prepared)
 	}
 }
@@ -338,8 +385,7 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 	_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
 		ChatID:   press.chatID,
 		Document: &models.InputFileUpload{Filename: export.FileName, Data: bytes.NewReader(export.Zip)},
-		Caption: exportCaption(period, export,
-			filesAnnually(prepared.settings.ImputeIRP, prepared.settings.ImputeIVA, prepared.settings.ImputeIRE)),
+		Caption:  exportCaption(period, export, prepared.registration == store.RegistrationAnnual),
 	})
 	if err != nil {
 		h.exportCallbackError(ctx, b, press.queryID, press.chatID, err)
@@ -362,12 +408,27 @@ func exportCaption(period string, export marangatu.Export, mayFileAnnually bool)
 	if export.Rows == 1 {
 		noun = "comprobante"
 	}
-	caption := fmt.Sprintf("📤 %d %s de %s %s para Marangatu.\n%s", export.Rows, noun, periodTitle(period), readyWord(export.Rows), uploadHint)
-	if len(export.Skipped) > 0 {
-		caption += "\n\n" + formatSkipped(export.Skipped)
-	}
+	caption := fmt.Sprintf("📤 %d %s de %s %s para Marangatu.\n%s\n\n%s\n%s", export.Rows, noun, periodTitle(period), readyWord(export.Rows), uploadHint, presentationHint, retentionHint)
 	if note := periodNote(period, mayFileAnnually); note != "" {
 		caption += "\n\n" + note
+	}
+	if len(export.Skipped) > 0 {
+		// Telegram limita el texto de un documento a 1024 caracteres. Las
+		// instrucciones fiscales siempre quedan; acotamos solo el detalle opcional.
+		caption += "\n\nQuedaron afuera:"
+		for index, skipped := range export.Skipped {
+			line := fmt.Sprintf("\n• %s — %s", skipped.Number, skipped.Reason)
+			remaining := len(export.Skipped) - index - 1
+			suffix := ""
+			if remaining > 0 {
+				suffix = fmt.Sprintf("\n… y %d más; revisá la previa.", remaining)
+			}
+			if len(utf16.Encode([]rune(caption+line+suffix))) > 1024 {
+				caption += fmt.Sprintf("\n… y %d más; revisá la previa.", remaining+1)
+				break
+			}
+			caption += line
+		}
 	}
 	return caption
 }
@@ -377,12 +438,6 @@ func readyWord(n int) string {
 		return "listo"
 	}
 	return "listos"
-}
-
-// filesAnnually indica si conviene avisar del archivo anual: solo a quien imputa al IRP-RSP
-// sin IVA ni IRE, porque quien liquida IVA o IRE registra sus comprobantes mes a mes.
-func filesAnnually(irp, iva, ire bool) bool {
-	return irp && !iva && !ire
 }
 
 // El registro anual del IRP-RSP se presenta hasta febrero del año siguiente: en enero y febrero
@@ -397,15 +452,15 @@ func annualYearToFile(now time.Time) string {
 	return now.Format(yearLayout)
 }
 
-// annualHint explica cómo generar el archivo anual a quien imputa al IRP-RSP.
+// annualHint explica cómo generar el archivo para el registro anual confirmado.
 func annualHint(year string) string {
-	return fmt.Sprintf("ℹ️ Si presentás el IRP-RSP en forma anual, Marangatu pide el archivo del año: usá /exportar %s.", year)
+	return fmt.Sprintf("ℹ️ Para tu registro anual (956), usá /exportar %s para el archivo del año.", year)
 }
 
 // periodNote aclara qué tipo de archivo es: el anual siempre, el mensual solo a quien puede presentar anual.
 func periodNote(period string, mayFileAnnually bool) string {
 	if isAnnual(period) {
-		return fmt.Sprintf("ℹ️ Archivo anual (%s), para el registro anual del IRP-RSP. Para un mes usá /exportar 09/%s.", period, period)
+		return fmt.Sprintf("ℹ️ Archivo anual (%s), para la obligación 956. Para revisar un mes usá /exportar 09/%s.", period, period)
 	}
 	if mayFileAnnually {
 		return annualHint(period[:len(yearLayout)])
@@ -419,8 +474,13 @@ func formatSkipped(skipped []marangatu.Skipped) string {
 	}
 	var b strings.Builder
 	b.WriteString("Quedaron afuera:\n")
-	for _, s := range skipped {
+	// Las excluidas también se acotan: un mes con muchas electrónicas no
+	// debe impedir que Telegram entregue la previa o las instrucciones fiscales.
+	for _, s := range skipped[:min(len(skipped), exportPreviewLimit)] {
 		fmt.Fprintf(&b, "• %s — %s\n", s.Number, s.Reason)
+	}
+	if remaining := len(skipped) - exportPreviewLimit; remaining > 0 {
+		fmt.Fprintf(&b, "… y %d más excluidos.\n", remaining)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

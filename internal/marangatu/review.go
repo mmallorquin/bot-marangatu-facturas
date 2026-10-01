@@ -5,6 +5,8 @@ import (
 	"encoding/csv"
 	"fmt"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/xuri/excelize/v2"
 
@@ -68,7 +70,14 @@ func (p Preview) CSV() (ReviewFile, error) {
 		return ReviewFile{}, fmt.Errorf("escribiendo encabezados CSV: %w", err)
 	}
 	for _, inv := range p.Invoices {
-		if err := w.Write(purchaseFields(inv, p.settings)); err != nil {
+		fields := purchaseFields(inv, p.settings)
+		for i, value := range fields {
+			trimmed := strings.TrimLeftFunc(value, unicode.IsSpace)
+			if strings.HasPrefix(trimmed, "=") || strings.HasPrefix(trimmed, "+") || strings.HasPrefix(trimmed, "-") || strings.HasPrefix(trimmed, "@") {
+				fields[i] = "'" + value
+			}
+		}
+		if err := w.Write(fields); err != nil {
 			return ReviewFile{}, fmt.Errorf("escribiendo CSV: %w", err)
 		}
 	}

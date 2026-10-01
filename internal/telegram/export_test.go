@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -57,7 +58,7 @@ func TestFormatExportPreviewLimitsTheChatListAndExplainsSkippedInvoices(t *testi
 	}
 	preview.Skipped = []marangatu.Skipped{{Number: "001-001-0000099", Reason: marangatu.ReasonElectronic}}
 
-	text := formatExportPreview("2026-09", preview, store.Imputations{IVA: true, IRP: true})
+	text := formatExportPreview("2026-09", preview, store.Imputations{IVA: true, IRP: true}, store.RegistrationMonthly)
 
 	for _, want := range []string{
 		"Previa", "Septiembre 2026", "11 comprobantes", "1.650.000 Gs", "IVA, IRP-RSP",
@@ -127,6 +128,7 @@ func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar iva irp")
+	h.sendText("/registro 955")
 
 	// Act
 	h.sendText("/exportar")
@@ -151,9 +153,9 @@ func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 	}
 
 	// Act: descargar los formatos de revisión no consume V0001.
-	h.pressRaw("x:c:2026-09")
-	h.pressRaw("x:e:2026-09")
-	h.pressRaw("x:z:2026-09")
+	h.pressExport(t, "x:c:2026-09")
+	h.pressExport(t, "x:e:2026-09")
+	h.pressExport(t, "x:z:2026-09")
 
 	// Assert: CSV, Excel y finalmente el ZIP oficial V0001.
 	docs := h.telegram.byMethod("sendDocument")
@@ -183,7 +185,7 @@ func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 
 	// Una nueva confirmación recién consume V0002.
 	h.sendText("/exportar")
-	h.pressRaw("x:z:2026-09")
+	h.pressExport(t, "x:z:2026-09")
 	if second := h.telegram.byMethod("sendDocument"); len(second) != 4 || second[3].fileName != "80024627_REG_092026_V0002.zip" {
 		t.Errorf("la segunda exportación debería ser V0002: %+v", second)
 	}
@@ -196,7 +198,7 @@ func TestExportPreviewCanBeCancelledWithoutSendingAFile(t *testing.T) {
 	h.sendText("/imputar iva")
 	h.sendText("/exportar")
 
-	h.pressRaw("x:n:2026-09")
+	h.pressExport(t, "x:n:2026-09")
 
 	if docs := h.telegram.byMethod("sendDocument"); len(docs) != 0 {
 		t.Errorf("cancelar no debería enviar archivos: %+v", docs)
@@ -241,5 +243,80 @@ func TestExportExplainsWhenEveryInvoiceWasSkipped(t *testing.T) {
 	summary, err := h.store.MonthSummary(context.Background(), testChatID, "2026-09")
 	if err != nil || summary.Count != 1 {
 		t.Errorf("la factura electrónica debe seguir guardada: %+v, %v", summary, err)
+	}
+}
+
+func (h *harness) pressExport(t *testing.T, prefix string) {
+	h.pressRaw(h.exportButton(t, prefix))
+}
+
+func (h *harness) exportButton(t *testing.T, prefix string) string {
+	t.Helper()
+	var markup struct {
+		Rows [][]struct {
+			Data string `json:"callback_data"`
+		} `json:"inline_keyboard"`
+	}
+	if err := json.Unmarshal([]byte(h.telegram.lastSent(t).markup), &markup); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range markup.Rows {
+		for _, button := range row {
+			if strings.HasPrefix(button.Data, prefix+":") {
+				return button.Data
+			}
+		}
+	}
+	t.Fatalf("missing callback %s", prefix)
+	return ""
+}
+
+func TestExportRejectsChangedPreview(t *testing.T) {
+	for _, change := range []string{"imputations", "ruc", "invoice", "legacy"} {
+		t.Run(change, func(t *testing.T) {
+			h := newHarness(t)
+			h.saveOneInvoice(t)
+			h.sendText("/ruc 80024627-6")
+			h.sendText("/imputar iva")
+			h.sendText("/registro 955")
+			h.sendText("/exportar")
+			old := h.exportButton(t, "x:z:2026-09")
+			switch change {
+			case "imputations":
+				h.sendText("/imputar iva irp")
+			case "ruc":
+				h.sendText("/ruc 80000519-8")
+				h.sendText("/registro 955")
+			case "invoice":
+				inv := sampleInvoice()
+				inv.Number = "001-001-0009999"
+				h.reader.result.Invoice = inv
+				h.sendPhoto()
+				h.press(callback{action: actionSave, id: 2})
+			case "legacy":
+				old = "x:z:2026-09"
+			}
+			h.pressRaw(old)
+			if len(h.telegram.byMethod("sendDocument")) != 0 {
+				t.Fatal("stale preview exported")
+			}
+			edits := h.telegram.byMethod("editMessageText")
+			if len(edits) == 0 {
+				t.Fatal("preview was not refreshed")
+			}
+			var markup struct {
+				Rows [][]struct {
+					Data string `json:"callback_data"`
+				} `json:"inline_keyboard"`
+			}
+			if err := json.Unmarshal([]byte(edits[len(edits)-1].markup), &markup); err != nil {
+				t.Fatal(err)
+			}
+			h.pressRaw(markup.Rows[1][0].Data)
+			docs := h.telegram.byMethod("sendDocument")
+			if len(docs) != 1 || !strings.Contains(docs[0].fileName, "V0001") {
+				t.Fatalf("confirmation: %+v", docs)
+			}
+		})
 	}
 }

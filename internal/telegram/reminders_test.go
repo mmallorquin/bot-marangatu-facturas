@@ -36,6 +36,8 @@ func TestMonthlyReminderIsSentOnceAndNotAfterExporting(t *testing.T) {
 	// Arrange: una factura guardada de septiembre.
 	h := newHarness(t)
 	h.saveOneInvoice(t)
+	h.sendText("/ruc 80024627-6")
+	h.sendText("/registro 955")
 	handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
 	october := asuncion(2026, 10, 3, 10)
 
@@ -57,23 +59,25 @@ func TestMonthlyReminderIsSentOnceAndNotAfterExporting(t *testing.T) {
 }
 
 func TestNoReminderAfterExportingOrWhenDisabled(t *testing.T) {
-	cases := map[string]func(h *harness){
-		"ya exportó": func(h *harness) {
+	cases := map[string]func(t *testing.T, h *harness){
+		"ya exportó": func(t *testing.T, h *harness) {
 			h.sendText("/ruc 80024627-6")
 			h.sendText("/imputar iva")
+			h.sendText("/registro 955")
 			h.sendText("/exportar 09/2026")
-			h.pressRaw("x:z:2026-09")
+			h.pressExport(t, "x:z:2026-09")
 		},
-		"desactivado": func(h *harness) { h.sendText("/recordatorios no") },
-		"presenta anual": func(h *harness) {
-			h.sendText("/imputar irp") // el mensual no aplica: recibe el anual en enero
+		"desactivado": func(t *testing.T, h *harness) { h.sendText("/recordatorios no") },
+		"presenta anual": func(t *testing.T, h *harness) {
+			h.sendText("/ruc 80024627-6")
+			h.sendText("/registro 956") // el mensual no aplica: recibe el anual en enero
 		},
 	}
 	for name, setup := range cases {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			h.saveOneInvoice(t)
-			setup(h)
+			setup(t, h)
 			handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
 
 			handler.sendDueReminders(context.Background(), h.bot, asuncion(2026, 10, 5, 10))
@@ -87,10 +91,12 @@ func TestNoReminderAfterExportingOrWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestAnnualReminderForIRPOnlyInJanuary(t *testing.T) {
+func TestAnnualReminderForRegistration956InJanuary(t *testing.T) {
 	h := newHarness(t)
 	h.saveOneInvoice(t)
 	h.sendText("/imputar irp")
+	h.sendText("/ruc 80024627-6")
+	h.sendText("/registro 956")
 	handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
 
 	handler.sendDueReminders(context.Background(), h.bot, asuncion(2027, 1, 15, 10))

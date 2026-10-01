@@ -22,28 +22,31 @@ func TestAnnualExportIncludesTheWholeYear(t *testing.T) {
 	h.saveInvoiceOf(2, "2026-09-20", "001-001-0000002")
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar irp")
-	imputeReply := h.telegram.lastSent(t).text
+	h.sendText("/registro 956")
+	registrationReply := h.telegram.lastSent(t).text
 
 	// Act
 	h.sendText("/exportar 2026")
 	preview := h.telegram.lastSent(t)
-	h.pressRaw("x:z:2026")
+	h.pressExport(t, "x:z:2026")
 	h.sendText("/exportar 2026")
-	h.pressRaw("x:z:2026")
+	h.pressExport(t, "x:z:2026")
 	h.sendText("/exportar 09/2026")
 	monthlyPreview := h.telegram.lastSent(t).text
-	h.pressRaw("x:z:2026-09")
+	h.sendText("/registro 955")
+	h.sendText("/exportar 09/2026")
+	h.pressExport(t, "x:z:2026-09")
 
 	// Assert
-	if !strings.Contains(imputeReply, "/exportar 2026") {
-		t.Errorf("/imputar irp debería explicar el archivo anual: %q", imputeReply)
+	if !strings.Contains(registrationReply, "/exportar 2026") {
+		t.Errorf("/registro 956 debería explicar el archivo anual: %q", registrationReply)
 	}
 	for _, want := range []string{"Previa — 2026", "2 comprobantes", "Archivo anual", "/exportar 09/2026"} {
 		if !strings.Contains(preview.text, want) {
 			t.Errorf("falta %q en la previa anual:\n%s", want, preview.text)
 		}
 	}
-	if !strings.Contains(preview.markup, "x:z:2026\"") {
+	if !strings.Contains(preview.markup, "x:z:2026:") {
 		t.Errorf("el botón ZIP debería ser anual: %s", preview.markup)
 	}
 	if !strings.Contains(monthlyPreview, "1 comprobante") || !strings.Contains(monthlyPreview, "/exportar 2026") {
@@ -60,11 +63,12 @@ func TestAnnualExportIncludesTheWholeYear(t *testing.T) {
 	}
 }
 
-func TestMonthlyExportWithoutIRPHasNoAnnualHint(t *testing.T) {
+func TestMonthlyRegistrationHasNoAnnualHint(t *testing.T) {
 	h := newHarness(t)
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar iva")
+	h.sendText("/registro 955")
 
 	h.sendText("/exportar")
 
@@ -94,12 +98,13 @@ func TestAnnualYearToFileSuggestsLastYearUntilFebruary(t *testing.T) {
 	}
 }
 
-func TestAnnualHintIsOnlyForIRPWithoutIVAOrIRE(t *testing.T) {
+func TestMonthlyRegistrationWithIRPHasNoAnnualHint(t *testing.T) {
 	h := newHarness(t)
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 
 	h.sendText("/imputar iva irp")
+	h.sendText("/registro 955")
 	imputeReply := h.telegram.lastSent(t).text
 	h.sendText("/exportar")
 	preview := h.telegram.lastSent(t).text

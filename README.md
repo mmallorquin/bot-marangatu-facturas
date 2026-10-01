@@ -1,6 +1,6 @@
 # bot-marangatu-facturas
 
-Olvidate de cargar facturas a mano: mandá la foto y el bot la registra para Marangatu.
+Olvidate de transcribir facturas a mano: mandá la foto y el bot prepara el archivo para Marangatu.
 
 > 🚧 Proyecto en construcción, hecho **en público**. Seguí el avance en X con **#buildinpublic**.
 
@@ -20,10 +20,10 @@ timbrado, número y montos, lleva horas y genera errores.
 2. El bot extrae los datos: RUC y razón social del emisor, timbrado, número, fecha, condición,
    gravadas 10 % y 5 %, exentas, IVA y total.
 3. Te los muestra para que confirmes o corrijas.
-4. Con `/exportar` ves la previa del mes, podés revisarla en CSV o Excel y confirmás el ZIP para Marangatu.
+4. Con `/exportar` ves la previa del período según tu `/registro`, podés revisarla en CSV o Excel y confirmás el ZIP para Marangatu.
 
 El bot **no se conecta a tu cuenta de Marangatu**: vos subís el archivo. Así no tiene que
-manejar tus credenciales.
+manejar tus credenciales. Guardar o exportar en el bot no presenta tus registros ante la DNIT.
 
 ## Hoja de ruta
 
@@ -31,9 +31,20 @@ manejar tus credenciales.
 - [x] **Etapa 2 — Lectura:** extraer los datos de la factura desde la foto con IA y validarlos
 - [x] **Etapa 3 — Confirmación:** guardar, corregir o descartar cada factura desde el chat
 - [x] **Etapa 4 — Exportación:** generar el archivo de importación de la RG 90 para Marangatu
-- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre en Oracle como `bot-marangatu`; falta validar la importación y probar con usuarios)
+- [ ] **Etapa 5 — Beta:** probarlo con usuarios reales (ya corre en Oracle como `bot-marangatu`; importación del ZIP validada por el administrador, falta probar con otros usuarios)
 - [ ] **Etapa 6 — WhatsApp:** sumar WhatsApp como segundo canal
 - [ ] **Futuro:** carga automática en Marangatu
+
+### Próximos hitos de la beta
+
+- [x] Validar una importación real del ZIP en Marangatu (confirmado por el administrador).
+- [x] Corregir las instrucciones sobre presentación, electrónicas y conservación de comprobantes.
+- [x] Configurar la obligación de registro 955 mensual o 956 anual según el RUC, separada de la imputación a impuestos.
+- [ ] Distinguir ZIP generado de presentación confirmada por el usuario; revisar recordatorios según el calendario de declaraciones informativas.
+- [ ] Revisar aislamiento y borrado de datos antes de ampliar la beta.
+- [ ] Probar con otros usuarios y medir lecturas, correcciones, errores, costo y tiempo.
+
+El seguimiento normativo y sus límites están en [docs/dnit-vigencia.md](docs/dnit-vigencia.md).
 
 ## Stack
 
@@ -90,7 +101,9 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
 En Telegram, tocá **Menú** junto al campo de mensaje para elegir un comando. El bot registra
 esas opciones automáticamente al arrancar.
 
-La primera vez, `/start` te pide el RUC (lo escribís tal cual) y los impuestos con botones.
+La primera vez, `/start` te pide el RUC (lo escribís tal cual), los impuestos y la obligación
+de registro con botones. Elegí la que figure entre las obligaciones activas de tu RUC en Marangatu.
+El botón **No sé** explica dónde consultarla; el bot no la deduce de los impuestos ni consulta tu cuenta.
 
 1. Mandás la foto de la factura o el PDF. Podés mandar varias juntas, como álbum.
 2. El bot la lee y te la muestra con tres botones:
@@ -102,7 +115,7 @@ La primera vez, `/start` te pide el RUC (lo escribís tal cual) y los impuestos 
 3. **✏️ Corregir**: elegís el campo, escribís el valor correcto (`150.000`, `20/09/2026`, `1-1-1234`…)
    y el bot vuelve a validar.
 4. **✅ Guardar**: solo se puede si todos los datos cierran. Si ya habías guardado la misma factura, te avisa
-   apenas la lee. Si es electrónica (tiene CDC), te avisa que no va en el ZIP porque Marangatu ya la tiene.
+   apenas la lee. Si es electrónica (tiene CDC), no va en el ZIP: obtenela en Marangatu y revisá su imputación.
 
 Con `/autoguardar si`, las facturas que cierran se guardan solas, con un botón **↩️ Deshacer**.
 
@@ -112,29 +125,47 @@ Con `/autoguardar si`, las facturas que cierran se guardan solas, con un botón 
 | `/resumen 08/2026` | Lo mismo para otro mes |
 | `/facturas` | Lista las facturas guardadas del mes y permite borrar las guardadas por error |
 | `/facturas 08/2026` | Lo mismo para otro mes (o `/facturas 2026` para el año) |
-| `/exportar` | Muestra la previa del mes y permite descargar o generar el ZIP |
+| `/exportar` | Previa del mes para 955 o del año para 956; CSV, Excel y ZIP |
 | `/exportar 08/2026` | Lo mismo para otro mes |
-| `/exportar 2026` | Archivo del año entero, para quien presenta el IRP-RSP en forma anual |
+| `/exportar 2026` | Revisión del año entero; genera ZIP solo con registro 956 |
 | `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |
 | `/imputar iva irp` | A qué impuestos imputás tus compras: `iva`, `ire`, `irp` |
+| `/registro` | Consulta o elige con botones la obligación 955 mensual o 956 anual |
+| `/registro 955` / `956` | Configura la obligación que corresponda a tu RUC |
 | `/pendientes` | Cuenta las facturas leídas sin guardar y guarda de una vez las que cierran |
 | `/autoguardar si` / `no` | Guardar solas las facturas que cierran |
-| `/recordatorios si` / `no` | Aviso de exportar: el día 3 de cada mes por el mes anterior (o en enero, si presentás anual) |
+| `/recordatorios si` / `no` | Aviso de exportar según `/registro`: desde el día 3 por el mes anterior (955) o el 15 de enero por el año anterior (956); no es un vencimiento oficial |
 | `/cancelar` | Cancela una corrección a medias |
 | `/borrar_mis_datos` | Borra todo lo que guardaste en el bot, con confirmación |
 
 ### Exportar a Marangatu
 
-1. La primera vez: `/ruc 1234567-8` y `/imputar iva` (o los impuestos que correspondan).
+1. La primera vez: `/ruc 1234567-8`, `/imputar iva` (o los impuestos que correspondan) y `/registro 955` o `/registro 956`, según tu RUC.
 2. `/exportar` muestra cuántos comprobantes entrarán, el total, las imputaciones y las primeras 10 filas.
+   Si hay excluidos, muestra los primeros 10 con su motivo y cuenta el resto; siguen guardados en el bot.
 3. Si querés revisar todo, descargá el CSV o Excel. Estos archivos tienen encabezados y son solo de revisión.
 4. Tocá **Generar ZIP** para recibir el archivo oficial, por ejemplo `1234567_REG_092026_V0001.zip`.
 5. Subí únicamente ese ZIP en Marangatu, en la importación del Registro de Comprobantes.
+6. Revisá los registros y su imputación y **confirmá el período en Marangatu** para obtener el **Talón de Presentación**.
+
+Importar el ZIP no confirma la presentación. Conservá los comprobantes físicos por el plazo
+de prescripción del impuesto. Que el bot no tenga facturas no prueba que no hubo operaciones:
+si realmente no hubo movimiento y te corresponde presentar, confirmalo como «sin movimiento» en Marangatu.
 
 La numeración `V0001`, `V0002`… avanza únicamente al confirmar la generación del ZIP; descargar
 CSV o Excel no la consume.
 
-Las facturas electrónicas (con CDC) no van en el archivo: Marangatu las trae solo.
+Sin `/registro` elegido, o con un período incompatible, CSV y Excel siguen disponibles pero
+el bot no genera el ZIP. Para 956, `/exportar` sugiere el año anterior durante enero y febrero,
+y el actual durante el resto del año (hora de Paraguay); podés indicar otro año explícitamente.
+Para 955, sin argumento muestra el mes actual. Cambiar `/imputar` no cambia tu registro;
+cambiar el RUC lo deja sin configurar para que lo confirmes de nuevo.
+
+Las bases existentes conservan sus facturas y exportaciones, pero comienzan sin registro elegido.
+Usá `/registro` antes del primer ZIP y para habilitar los avisos de exportación correspondientes.
+
+Las facturas electrónicas (con CDC) no van en el archivo: obtenelas en Marangatu y revisá
+su imputación; si no se imputaron automáticamente, debés hacerlo allí.
 El formato está documentado en [docs/rg90-compras.md](docs/rg90-compras.md).
 
 Las facturas se guardan en `data/facturas.db` (SQLite, en `.gitignore`), separadas por chat.

@@ -38,7 +38,7 @@ const (
 
 // Razones por las que una factura no entra en el archivo.
 const (
-	ReasonElectronic      = "es electrónica: Marangatu la trae sola"
+	ReasonElectronic      = "es electrónica: obtenela en Marangatu y revisá su imputación"
 	ReasonUnsupportedType = "tipo de comprobante todavía no soportado"
 	ReasonTooOld          = "fecha anterior al 01/01/2021 al contado"
 )
