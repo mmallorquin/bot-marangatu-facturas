@@ -40,7 +40,7 @@ func TestUsageIsRecordedWithoutChangingReplies(t *testing.T) {
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar iva")
 	h.sendText("/registro 955")
-	h.sendText("/exportar")
+	h.sendText("/exportar 09/2026")
 	h.pressExport(t, "x:c:2026-09")
 	h.pressExport(t, "x:z:2026-09")
 

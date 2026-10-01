@@ -13,19 +13,14 @@ import (
 const (
 	WelcomeMessage = "👋 ¡Hola! Soy el bot de facturas para Marangatu.\n\n" +
 		"Mandame una foto de tu factura (o el PDF): la leo, la revisás y la guardás. Podés mandar varias juntas.\n\n" +
-		"/resumen — facturas guardadas este mes (o /resumen 08/2026)\n" +
-		"/facturas — ver las facturas guardadas y borrar las que sobran\n" +
-		"/pendientes — guardar de una vez las leídas que cierran\n" +
-		"/autoguardar si — guardar solas las facturas que cierran\n" +
-		"/recordatorios no — no recibir avisos de exportación\n" +
-		"/borrar_mis_datos — borrar todo lo que guardaste en el bot\n" +
-		"/exportar — revisar el período según tu /registro\n" +
-		"/exportar 2026 — revisar el año (ZIP para registro 956)\n" +
-		"/ruc — tu RUC (lo pide el archivo de Marangatu)\n" +
-		"/imputar — a qué impuestos imputás tus compras (iva, ire, irp)\n" +
-		"/registro — tu obligación 955 mensual o 956 anual\n" +
-		"/cancelar — cancelar una corrección\n\n" +
-		"Tocá Menú junto al campo de mensaje para elegir un comando.\n\n" +
+		"En Menú tenés Mis facturas, Exportar, Ajustes y Ayuda. Tu RUC lo configurás cuando quieras exportar."
+	UsageMessage = "📸 Mandame una foto o PDF completo de la factura. Revisá los datos y tocá Guardar; si hay algo mal, tocá Corregir.\n" +
+		"Se procesa una factura por archivo. Si un PDF reúne varias, separalas antes de enviarlo.\n\n" +
+		"/facturas — pendientes, guardadas y totales. Abrí una factura para revisarla o corregirla, y usá las flechas para ver otros meses o años.\n" +
+		"/exportar — elegí un período, revisá el resumen y descargá ZIP, CSV o Excel.\n" +
+		"/ajustes — tu RUC, impuestos, registro 955/956, guardado automático, recordatorios y borrado de datos.\n" +
+		"/cancelar — salir de una corrección o configuración.\n\n" +
+		"Los comandos anteriores siguen disponibles: /resumen, /pendientes, /ruc, /imputar, /registro, /autoguardar, /recordatorios y /borrar_mis_datos.\n\n" +
 		"El bot no presenta tus registros ante la DNIT.\n" + presentationHint + "\n" + retentionHint
 	HelpMessage              = "Mandame una foto de la factura 📸 o el PDF 📄 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
@@ -66,6 +61,7 @@ const (
 const (
 	summaryCommand = "/resumen"
 	cancelCommand  = "/cancelar"
+	helpCommand    = "/ayuda"
 )
 
 // valueHints ayuda a escribir cada campo en el formato correcto.
@@ -97,8 +93,10 @@ const pdfMimeType = "application/pdf"
 // ReplyForText decide qué responder a un mensaje de texto que no es un comando del flujo.
 func ReplyForText(text string) string {
 	switch commandOf(text) {
-	case startCommand, "/ayuda", "/help":
+	case startCommand:
 		return WelcomeMessage
+	case helpCommand, "/help":
+		return UsageMessage
 	}
 	return HelpMessage
 }

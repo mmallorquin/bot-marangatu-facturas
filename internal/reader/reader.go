@@ -34,3 +34,23 @@ type Usage struct {
 type Reader interface {
 	Read(ctx context.Context, img Image) (Result, error)
 }
+
+// ErrorKind distingue la próxima acción útil sin revelar detalles del proveedor.
+type ErrorKind string
+
+const (
+	ErrorTransient     ErrorKind = "transient"
+	ErrorQuota         ErrorKind = "quota"
+	ErrorConfiguration ErrorKind = "configuration"
+	ErrorDocument      ErrorKind = "document"
+	ErrorResponse      ErrorKind = "response"
+)
+
+// ClassifiedError permite explicar una falla al usuario usando solo texto seguro.
+// Retryable indica que puede volver a enviar el archivo más tarde; no autoriza reintentos automáticos.
+type ClassifiedError interface {
+	error
+	Kind() ErrorKind
+	Retryable() bool
+	UserMessage() string
+}

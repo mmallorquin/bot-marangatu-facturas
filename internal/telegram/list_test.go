@@ -17,7 +17,7 @@ func TestListWithoutInvoices(t *testing.T) {
 	}
 }
 
-func TestListShowsSavedInvoicesNewestFirstWithDeleteButtons(t *testing.T) {
+func TestListShowsSavedInvoicesNewestFirstWithOpenButtons(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
 	h.saveInvoiceOf(1, "2026-09-10", "001-001-0000001")
@@ -32,7 +32,7 @@ func TestListShowsSavedInvoicesNewestFirstWithDeleteButtons(t *testing.T) {
 	if !strings.Contains(list.text, "2 facturas guardadas") || first < 0 || second < first {
 		t.Errorf("lista:\n%s", list.text)
 	}
-	for _, data := range []string{`"l:a:2:2026-09"`, `"l:a:1:2026-09"`} {
+	for _, data := range []string{`"h:o:s:2026-09:0:2"`, `"h:o:s:2026-09:0:1"`} {
 		if !strings.Contains(list.markup, data) {
 			t.Errorf("falta el botón %s en %s", data, list.markup)
 		}

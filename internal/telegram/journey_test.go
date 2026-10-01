@@ -31,10 +31,10 @@ func TestFullUserJourney(t *testing.T) {
 	// 1. Bienvenida y ayuda.
 	h.sendText("/start")
 	sent := h.telegram.byMethod("sendMessage")
-	expect("/start", sent[len(sent)-2].text, "Mandame una foto", "/facturas", "/exportar 2026")
-	expect("/start pide el RUC", lastText(), "necesito tu RUC")
-	h.sendText("/cancelar") // lo carga después, con /ruc
-	expect("/cancelar", lastText(), "/ruc")
+	if len(sent) != 1 {
+		t.Fatal("la bienvenida no debe interrumpir con configuración")
+	}
+	expect("/start", lastText(), "Mandame una foto", "Mis facturas", "Exportar")
 	h.sendText("/ayuda")
 	expect("/ayuda", lastText(), "/resumen", "/exportar")
 
@@ -102,6 +102,7 @@ func TestFullUserJourney(t *testing.T) {
 
 	// 9. Exportación mensual: previa, CSV y ZIP (la electrónica queda afuera).
 	h.sendText("/exportar")
+	h.pressRaw(callbackDataIn(t, h.telegram.lastSent(t).markup, "ep:use:"))
 	expect("previa mensual", lastText(), "1 comprobante listo para Marangatu", "001-001-0009999 — es electrónica", "955")
 	h.pressExport(t, "x:c:2026-09")
 	h.pressExport(t, "x:z:2026-09")

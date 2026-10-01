@@ -80,6 +80,7 @@ func (h *handler) setRegistration(ctx context.Context, b *bot.Bot, chatID int64,
 		return
 	}
 	h.send(ctx, b, chatID, h.registrationSaved(registration), nil)
+	h.resumePendingExport(ctx, b, chatID)
 }
 
 func (h *handler) registrationSaved(registration store.Registration) string {
@@ -122,6 +123,7 @@ func (h *handler) handleRegistrationCallback(ctx context.Context, b *bot.Bot, qu
 	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}
 	h.editText(ctx, b, press, h.registrationSaved(registration), noKeyboard())
 	h.answer(ctx, b, query.ID, "Registro guardado", false)
+	h.resumePendingExport(ctx, b, msg.Chat.ID)
 }
 
 func wrongRegistrationPeriod(registration store.Registration, period string) string {

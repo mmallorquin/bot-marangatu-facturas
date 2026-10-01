@@ -161,33 +161,24 @@ func (h *handler) setImputations(ctx context.Context, b *bot.Bot, chatID int64, 
 	}
 	message, keyboard := h.imputationReply(ctx, chatID, imp)
 	h.send(ctx, b, chatID, message, keyboard)
+	h.resumeConfiguredExport(ctx, b, chatID)
 }
 
 // exportMonth muestra una previa; el ZIP se arma recién cuando el usuario lo confirma.
 func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, text string) {
-	period, err := parsePeriod(text, h.deps.Now().In(reminderLocation))
+	now := h.deps.Now().In(reminderLocation)
+	period, err := parsePeriod(text, now)
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
-	cs, err := h.deps.Store.Settings(ctx, chatID)
-	if err != nil {
-		h.logger.Error("no se pudo leer la configuración", "chat_id", chatID, "error", err)
-		h.send(ctx, b, chatID, StoreErrorMessage, nil)
-		return
+	if len(strings.Fields(text)) == 1 {
+		period = "select:" + period + ":" + annualYearToFile(now)
 	}
-	switch {
-	case cs.RUC == "":
-		h.send(ctx, b, chatID, askRUCMessage, nil)
-		return
-	case cs.Imputations == (store.Imputations{}):
-		h.askImputations(ctx, b, chatID)
-		return
-	}
-	if len(strings.Fields(text)) == 1 && cs.Registration == store.RegistrationAnnual {
-		period = annualYearToFile(h.deps.Now().In(reminderLocation))
-	}
+	h.startExport(ctx, b, chatID, period)
+}
 
+func (h *handler) showExportPreview(ctx context.Context, b *bot.Bot, chatID int64, period string, cs store.ChatSettings) {
 	invoices, err := h.deps.Store.SavedInvoices(ctx, chatID, period)
 	if err != nil {
 		h.logger.Error("no se pudieron leer las facturas", "chat_id", chatID, "error", err)
@@ -223,7 +214,8 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 		return
 	}
-	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations, cs.Registration), keyboard)
+	revision := exportRevision(settings, preview, cs.Registration)
+	h.send(ctx, b, chatID, formatExportPreview(period, preview, cs.Imputations, cs.Registration)+h.presentationNote(ctx, chatID, period, revision), keyboard)
 }
 
 func (h *handler) newExportKeyboard(ctx context.Context, chatID int64, period, revision string) (*models.InlineKeyboardMarkup, error) {
@@ -232,7 +224,7 @@ func (h *handler) newExportKeyboard(ctx context.Context, chatID int64, period, r
 		return nil, err
 	}
 	requestID := fmt.Sprintf("%x", nonce)
-	if err := h.deps.Store.CreateExportRequest(ctx, chatID, period, requestID); err != nil {
+	if err := h.deps.Store.CreateExportPreview(ctx, chatID, period, requestID, revision); err != nil {
 		return nil, err
 	}
 	return exportPreviewKeyboard(period, revision, requestID), nil
@@ -366,7 +358,7 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 			h.exportCallbackError(ctx, b, query.ID, press.chatID, err)
 			return
 		}
-		h.editText(ctx, b, press, formatExportPreview(callback.period, prepared.preview, imp, prepared.registration), keyboard)
+		h.editText(ctx, b, press, formatExportPreview(callback.period, prepared.preview, imp, prepared.registration)+h.presentationNote(ctx, press.chatID, callback.period, revision), keyboard)
 		h.answer(ctx, b, query.ID, "La previa cambió. Revisala y confirmá de nuevo.", true)
 		return
 	}
@@ -460,6 +452,8 @@ func (h *handler) sendConfirmedZIP(ctx context.Context, b *bot.Bot, press button
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventExportZIP})
 	h.editKeyboard(ctx, b, press, noKeyboard())
 	h.answer(ctx, b, press.queryID, "ZIP listo", false)
+	h.send(ctx, b, press.chatID, "📤 ZIP entregado. Esto todavía no confirma la presentación del período en Marangatu. Cuando obtengas el Talón, podés marcarlo acá.",
+		presentationKeyboard("ask", period, requestID, "Ya presenté en Marangatu"))
 	h.logger.Info("exportación enviada", "chat_id", press.chatID, "periodo", period, "filas", export.Rows, "omitidas", len(export.Skipped))
 }
 

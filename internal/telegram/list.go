@@ -24,8 +24,7 @@ const (
 	listActionConfirm  = "s" // sí, borrar
 	listActionCancel   = "n" // no borrar
 
-	listLimit          = 20
-	deleteButtonsInRow = 4
+	listLimit = 10
 )
 
 // listCallback es un botón de /facturas: l:<acción>:<id>:<período>.
@@ -56,12 +55,16 @@ func parseListCallback(data string) (listCallback, error) {
 }
 
 func (h *handler) listInvoices(ctx context.Context, b *bot.Bot, chatID int64, text string) {
-	period, err := parsePeriod(text, h.deps.Now())
+	period, err := parsePeriod(text, h.deps.Now().In(reminderLocation))
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
 	}
-	message, keyboard, err := h.invoiceList(ctx, chatID, period)
+	view := historyCallback{action: "l", period: period}
+	if len(strings.Fields(text)) > 1 {
+		view.tab = "s"
+	}
+	message, keyboard, err := h.historyList(ctx, chatID, view)
 	if err != nil {
 		h.logger.Error("no se pudieron listar las facturas", "chat_id", chatID, "error", err)
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
@@ -70,39 +73,9 @@ func (h *handler) listInvoices(ctx context.Context, b *bot.Bot, chatID int64, te
 	h.send(ctx, b, chatID, message, keyboard)
 }
 
-// invoiceList arma el mensaje con las facturas guardadas del período, las más recientes primero.
+// invoiceList conserva el retorno a las guardadas después del borrado.
 func (h *handler) invoiceList(ctx context.Context, chatID int64, period string) (string, *models.InlineKeyboardMarkup, error) {
-	saved, err := h.deps.Store.SavedRecords(ctx, chatID, period)
-	if err != nil {
-		return "", nil, err
-	}
-	if len(saved) == 0 {
-		return fmt.Sprintf("📂 No hay facturas guardadas de %s.", periodTitle(period)), nil, nil
-	}
-	slices.Reverse(saved)
-	shown := saved[:min(len(saved), listLimit)]
-
-	var text strings.Builder
-	noun := "facturas guardadas"
-	if len(saved) == 1 {
-		noun = "factura guardada"
-	}
-	fmt.Fprintf(&text, "📂 %s: %d %s\n", periodTitle(period), len(saved), noun)
-	var buttons []models.InlineKeyboardButton
-	for i, rec := range shown {
-		inv := rec.Invoice
-		fmt.Fprintf(&text, "\n%d. %s · %s · %s · %s Gs",
-			i+1, displayDate(inv.Date), previewIssuer(inv.IssuerName), inv.Number, formatGs(inv.Total))
-		buttons = append(buttons, models.InlineKeyboardButton{
-			Text:         fmt.Sprintf("🗑️ %d", i+1),
-			CallbackData: listCallback{action: listActionAsk, id: rec.ID, period: period}.encode(),
-		})
-	}
-	if hidden := len(saved) - len(shown); hidden > 0 {
-		fmt.Fprintf(&text, "\n\n… y %d más antiguas. Para verlas, pedí un mes: /facturas 09/2026", hidden)
-	}
-	text.WriteString("\n\nPara sacar una factura guardada por error, tocá 🗑️ con su número.")
-	return text.String(), &models.InlineKeyboardMarkup{InlineKeyboard: slices.Collect(slices.Chunk(buttons, deleteButtonsInRow))}, nil
+	return h.historyList(ctx, chatID, historyCallback{action: "l", tab: "s", period: period})
 }
 
 func (h *handler) handleListCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery, msg *models.Message) {

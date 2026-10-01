@@ -12,18 +12,10 @@ import (
 // ConfigureMenu publica los comandos y activa su botón de menú en Telegram.
 func ConfigureMenu(ctx context.Context, b *bot.Bot) error {
 	_, commandsErr := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{Commands: []models.BotCommand{
-		{Command: "resumen", Description: "Ver las facturas y el total de este mes"},
-		{Command: "facturas", Description: "Ver las facturas guardadas y borrar las que sobran"},
-		{Command: "pendientes", Description: "Guardar de una vez las facturas leídas que cierran"},
-		{Command: "exportar", Description: "Revisar las facturas y generar el ZIP"},
-		{Command: "ruc", Description: "Consultar o configurar tu RUC"},
-		{Command: "imputar", Description: "Elegir impuestos: IVA, IRE o IRP"},
-		{Command: "registro", Description: "Elegir registro 955 mensual o 956 anual"},
-		{Command: "autoguardar", Description: "Guardar solas las facturas que cierran"},
-		{Command: "recordatorios", Description: "Activar o desactivar avisos de exportación"},
-		{Command: "borrar_mis_datos", Description: "Borrar tus datos del bot con confirmación"},
-		{Command: "cancelar", Description: "Cancelar una corrección pendiente"},
-		{Command: "start", Description: "Ver cómo usar el bot"},
+		{Command: "facturas", Description: "Mis facturas: pendientes, guardadas y totales"},
+		{Command: "exportar", Description: "Exportar: elegir período y revisar archivos"},
+		{Command: "ajustes", Description: "Ajustes: RUC, impuestos y preferencias"},
+		{Command: "ayuda", Description: "Ayuda: cómo usar el bot y presentar en Marangatu"},
 	}})
 	if commandsErr != nil {
 		commandsErr = fmt.Errorf("publicando comandos: %w", commandsErr)

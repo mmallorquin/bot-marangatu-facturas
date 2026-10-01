@@ -38,7 +38,7 @@ type InvoiceStore interface {
 	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
 	Unsave(ctx context.Context, chatID, id int64) error
 	SetAutoSave(ctx context.Context, chatID int64, on bool) error
-	SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error
+	SetAwaitingRUC(ctx context.Context, chatID int64, on bool, setupKey ...string) error
 	DeleteChat(ctx context.Context, chatID int64) (int, error)
 	SetReminders(ctx context.Context, chatID int64, on bool) error
 	ReminderCandidates(ctx context.Context, period string) ([]store.ReminderCandidate, error)
@@ -47,8 +47,13 @@ type InvoiceStore interface {
 	SetRUC(ctx context.Context, chatID int64, ruc string) error
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
 	SetRegistration(ctx context.Context, chatID int64, ruc string, registration store.Registration) error
+	SetPendingExport(ctx context.Context, chatID int64, period string) error
 	NextExportSeq(ctx context.Context, chatID int64, period string) (int, error)
 	CreateExportRequest(ctx context.Context, chatID int64, period, key string) error
+	CreateExportPreview(ctx context.Context, chatID int64, period, key, revision string) error
+	ExportDeliveredRevision(ctx context.Context, chatID int64, period, key string) (string, error)
+	ExportPresentation(ctx context.Context, chatID int64, period string) (store.Presentation, error)
+	MarkUserPresented(ctx context.Context, chatID int64, period, key string) error
 	ExportRequestStatus(ctx context.Context, chatID int64, period, key string) (bool, error)
 	ReserveExport(ctx context.Context, chatID int64, period, key string) (int, bool, error)
 	MarkExportDelivered(ctx context.Context, chatID int64, period, key string) error
@@ -175,6 +180,12 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 	case startCommand:
 		h.welcome(ctx, b, chatID)
 		return
+	case helpCommand, "/help":
+		h.send(ctx, b, chatID, UsageMessage, nil)
+		return
+	case settingsCommand:
+		h.showSettings(ctx, b, chatID)
+		return
 	case rucCommand:
 		h.setRUC(ctx, b, chatID, text)
 		return
@@ -252,7 +263,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 			h.track(ctx, chatID, store.Event{
 				Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
 			})
-			h.send(ctx, b, chatID, ReadErrorMessage, nil)
+			h.send(ctx, b, chatID, readFailureMessage(err), nil)
 		})
 		return
 	}
@@ -363,6 +374,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
+	stoppedSetup := h.stopOnboarding(ctx, chatID)
 	_, found, err := h.deps.Store.Awaiting(ctx, chatID)
 	if err == nil && found {
 		err = h.deps.Store.ClearAwaiting(ctx, chatID)
@@ -373,7 +385,7 @@ func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 	case found:
 		h.send(ctx, b, chatID, CancelledMessage, nil)
-	case h.stopOnboarding(ctx, chatID):
+	case stoppedSetup:
 		h.send(ctx, b, chatID, "Listo, cargás tu RUC después con /ruc 1234567-8.", nil)
 	default:
 		h.send(ctx, b, chatID, NothingToCancel, nil)
@@ -381,7 +393,7 @@ func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64
 }
 
 func (h *handler) sendSummary(ctx context.Context, b *bot.Bot, chatID int64, text string) {
-	period, err := parsePeriod(text, h.deps.Now())
+	period, err := parsePeriod(text, h.deps.Now().In(reminderLocation))
 	if err != nil {
 		h.send(ctx, b, chatID, "❌ "+err.Error(), nil)
 		return
@@ -436,7 +448,7 @@ func (h *handler) track(ctx context.Context, chatID int64, e store.Event) {
 
 // send envía un mensaje; keyboard puede ser nil.
 func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text string, keyboard *models.InlineKeyboardMarkup) error {
-	params := &bot.SendMessageParams{ChatID: chatID, Text: text}
+	params := &bot.SendMessageParams{ChatID: chatID, Text: telegramMessageText(text)}
 	if keyboard != nil {
 		params.ReplyMarkup = keyboard
 	}

@@ -13,13 +13,13 @@ import (
 
 // Estos tests comprueban las instrucciones que recibe el usuario en cada rama,
 // no solo una constante que podría no llegar a mostrarse en Telegram.
-func TestDNITWelcomeDistinguishesTheBotFromPresentation(t *testing.T) {
+func TestDNITHelpDistinguishesTheBotFromPresentation(t *testing.T) {
 	h := newHarness(t)
-	h.sendText("/start")
+	h.sendText("/ayuda")
 	welcome := h.telegram.byMethod("sendMessage")[0].text
 	for _, want := range []string{"no presenta", "confirmar", "Talón de Presentación", "comprobantes físicos"} {
 		if !strings.Contains(welcome, want) {
-			t.Errorf("la bienvenida debe aclarar %q: %s", want, welcome)
+			t.Errorf("la ayuda debe aclarar %q: %s", want, welcome)
 		}
 	}
 }
@@ -122,6 +122,7 @@ func TestDNITExportWithOnlyElectronicInvoicesRequestsImputationReview(t *testing
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar irp")
+	h.sendText("/registro 956")
 	h.sendText("/exportar 2026")
 	text := h.telegram.lastSent(t).text
 	for _, want := range []string{"ninguno entra en el ZIP", "imputación", "confirmar", "Marangatu"} {
@@ -138,6 +139,7 @@ func TestDNITEmptyBotDoesNotDeclareNoMovement(t *testing.T) {
 	h := newHarness(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar irp")
+	h.sendText("/registro 956")
 	h.sendText("/exportar 2026")
 	text := h.telegram.lastSent(t).text
 	for _, want := range []string{"No hay facturas guardadas", "no significa que no hubo operaciones", "Si realmente", "sin movimiento", "Marangatu"} {

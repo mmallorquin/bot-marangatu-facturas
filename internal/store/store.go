@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS export_requests (
 	PRIMARY KEY (chat_id, period, request_key)
 );
 
+-- Declaración manual del usuario: no es una consulta ni una validación de DNIT.
+CREATE TABLE IF NOT EXISTS presentations (
+	chat_id INTEGER NOT NULL,
+	period TEXT NOT NULL,
+	revision TEXT NOT NULL,
+	seq INTEGER NOT NULL,
+	confirmed_at TEXT NOT NULL,
+	PRIMARY KEY (chat_id, period)
+);
+
 -- Uso del bot para las métricas de la beta. Sin datos de las facturas.
 CREATE TABLE IF NOT EXISTS events (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,6 +189,9 @@ var addedColumns = []struct{ table, column, definition string }{
 	{"chat_settings", "reminders", "INTEGER NOT NULL DEFAULT 1"},    // recordatorio de exportar
 	{"chat_settings", "awaiting_ruc", "INTEGER NOT NULL DEFAULT 0"}, // configuración guiada: el próximo texto es el RUC
 	{"exports", "delivered_at", "TEXT NOT NULL DEFAULT ''"},         // reservar el número no confirma la entrega
+	{"chat_settings", "pending_export", "TEXT NOT NULL DEFAULT ''"}, // retomar el período tras configurar
+	{"chat_settings", "ruc_setup_key", "TEXT NOT NULL DEFAULT ''"},  // invalidar Cancelar de configuraciones anteriores
+	{"export_requests", "revision", "TEXT NOT NULL DEFAULT ''"},     // datos entregados, para la marca manual
 }
 
 func migrate(db *sql.DB) error {
@@ -393,7 +406,7 @@ func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
 		return 0, fmt.Errorf("borrando las facturas: %w", err)
 	}
 	deleted, _ := res.RowsAffected()
-	for _, table := range []string{"chat_settings", "exports", "export_requests", "reminders", "events"} {
+	for _, table := range []string{"chat_settings", "exports", "export_requests", "presentations", "reminders", "events"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE chat_id = ?", chatID); err != nil {
 			return 0, fmt.Errorf("borrando %s: %w", table, err)
 		}

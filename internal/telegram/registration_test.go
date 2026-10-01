@@ -140,24 +140,25 @@ func TestRegistrationRejectsMalformedChoicesWithoutChangingSelection(t *testing.
 	}
 }
 
-func TestRegistrationUnknownAllowsReviewButBlocksZip(t *testing.T) {
+func TestRegistrationUnknownRequiresSetupThenResumesPreviewWithoutConsumingVersion(t *testing.T) {
 	h := newHarness(t)
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar irp")
 	h.sendText("/exportar 09/2026")
-	h.pressExport(t, "x:c:2026-09")
-	h.pressExport(t, "x:e:2026-09")
-	h.pressExport(t, "x:z:2026-09")
 	docs := h.telegram.byMethod("sendDocument")
-	if len(docs) != 2 || !strings.HasSuffix(docs[0].fileName, ".csv") || !strings.HasSuffix(docs[1].fileName, ".xlsx") {
-		t.Fatalf("sin elegir registro solo se permiten archivos de revisión: %+v", docs)
+	if len(docs) != 0 {
+		t.Fatalf("la configuración pendiente no debe enviar archivos: %+v", docs)
 	}
 	if text := h.telegram.lastSent(t).text; !strings.Contains(text, "/registro") {
 		t.Errorf("el ZIP debe pedir la elección explícita: %s", text)
 	}
 	h.sendText("/registro 955")
-	h.sendText("/exportar 09/2026")
+	if !strings.Contains(h.telegram.lastSent(t).text, "Previa — Septiembre 2026") {
+		t.Fatal("debe retomar la misma previa")
+	}
+	h.pressExport(t, "x:c:2026-09")
+	h.pressExport(t, "x:e:2026-09")
 	h.pressExport(t, "x:z:2026-09")
 	docs = h.telegram.byMethod("sendDocument")
 	if len(docs) != 3 || docs[2].fileName != "80024627_REG_092026_V0001.zip" {
@@ -213,6 +214,7 @@ func TestRegistrationDefaultExportUsesAnnualPeriodAndLocalYear(t *testing.T) {
 	} {
 		h.handle = NewHandler(Deps{Logger: discardLogger(), Store: h.store, Reader: h.reader, Now: func() time.Time { return now }})
 		h.sendText("/exportar")
+		h.pressRaw(callbackDataIn(t, h.telegram.lastSent(t).markup, "ep:use:"))
 		if text := h.telegram.lastSent(t).text; !strings.Contains(text, "Previa — 2026") {
 			t.Errorf("%s: debe sugerir el ejercicio anterior completo: %s", now, text)
 		}

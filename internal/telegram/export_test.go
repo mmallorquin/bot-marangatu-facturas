@@ -132,6 +132,7 @@ func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 
 	// Act
 	h.sendText("/exportar")
+	h.pressRaw(callbackDataIn(t, h.telegram.lastSent(t).markup, "ep:use:"))
 
 	// Assert: primero muestra exactamente qué se va a exportar.
 	preview := h.telegram.lastSent(t)
@@ -184,7 +185,7 @@ func TestExportShowsPreviewAndOnlyGeneratesZipAfterConfirmation(t *testing.T) {
 	}
 
 	// Una nueva confirmación recién consume V0002.
-	h.sendText("/exportar")
+	h.sendText("/exportar 09/2026")
 	h.pressExport(t, "x:z:2026-09")
 	if second := h.telegram.byMethod("sendDocument"); len(second) != 4 || second[3].fileName != "80024627_REG_092026_V0002.zip" {
 		t.Errorf("la segunda exportación debería ser V0002: %+v", second)
@@ -196,7 +197,8 @@ func TestExportPreviewCanBeCancelledWithoutSendingAFile(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar iva")
-	h.sendText("/exportar")
+	h.sendText("/registro 955")
+	h.sendText("/exportar 09/2026")
 
 	h.pressExport(t, "x:n:2026-09")
 
@@ -212,6 +214,7 @@ func TestExportWithoutSavedInvoices(t *testing.T) {
 	h := newHarness(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar ire")
+	h.sendText("/registro 955")
 
 	h.sendText("/exportar 08/2026")
 
@@ -229,7 +232,8 @@ func TestExportExplainsWhenEveryInvoiceWasSkipped(t *testing.T) {
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/imputar iva")
 
-	h.sendText("/exportar")
+	h.sendText("/registro 955")
+	h.sendText("/exportar 09/2026")
 
 	got := h.telegram.lastSent(t).text
 	if !strings.Contains(got, marangatu.ReasonElectronic) || len(h.telegram.byMethod("sendDocument")) != 0 {
@@ -279,7 +283,7 @@ func TestExportRejectsChangedPreview(t *testing.T) {
 			h.sendText("/ruc 80024627-6")
 			h.sendText("/imputar iva")
 			h.sendText("/registro 955")
-			h.sendText("/exportar")
+			h.sendText("/exportar 09/2026")
 			old := h.exportButton(t, "x:z:2026-09")
 			switch change {
 			case "imputations":
