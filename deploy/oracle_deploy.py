@@ -23,6 +23,10 @@ MAX_PACKAGE = 64 * 1024 * 1024
 RELEASE_FILES = {"bot", "metricas", "REVISION", "SHA256SUMS"}
 
 
+class HealthError(RuntimeError):
+    """Readiness failure with a controlled message, never raw process logs."""
+
+
 @dataclass(frozen=True)
 class Paths:
     target: Path = Path("/opt/bot-marangatu")
@@ -69,7 +73,8 @@ def deploy_release(payload, paths, service):
                 service.health(hashlib.sha256(previous["bot"]).hexdigest())
             except Exception as rollback_error:
                 raise RuntimeError(f"despliegue y recuperación fallaron; respaldo: {backup}") from rollback_error
-            raise RuntimeError(f"despliegue falló; ejecutable anterior restaurado; respaldo: {backup}") from error
+            reason = f"; comprobación: {error}" if isinstance(error, HealthError) else ""
+            raise RuntimeError(f"despliegue falló{reason}; ejecutable anterior restaurado; respaldo: {backup}") from error
         return {"revision": revision, "backup": str(backup), "sha256": hashlib.sha256(files["bot"]).hexdigest()}
 
 
@@ -106,31 +111,41 @@ class Systemd:
     def health(self, expected_hash):
         stable = 0
         last_pid = None
+        failure = "no se confirmó el inicio del bot"
         for _ in range(45):
             state = self.state()
             pid = state.get("MainPID", "0")
-            if state.get("ActiveState") != "active" or pid == "0":
-                raise RuntimeError("el servicio no está activo")
+            status = state.get("ActiveState")
+            if status not in ("active", "activating"):
+                raise HealthError("el servicio no está activo")
+            # Type=simple returns from start before execve. The PID may still
+            # run systemd's pre-exec helper; wait, but never accept its hash.
             try:
-                with open(f"/proc/{int(pid)}/exe", "rb") as binary:
-                    digest = hashlib.sha256()
-                    for chunk in iter(lambda: binary.read(1024 * 1024), b""):
-                        digest.update(chunk)
-                    actual_hash = digest.hexdigest()
-            except (OSError, ValueError) as error:
-                raise RuntimeError("no se pudo verificar el ejecutable activo") from error
-            if actual_hash != expected_hash:
-                raise RuntimeError("el proceso ejecuta una versión diferente")
-            logs = subprocess.check_output(
-                ["/usr/bin/journalctl", "-u", self.unit, f"_PID={int(pid)}", "-n", "20", "--no-pager", "-o", "cat"],
-                text=True, timeout=10,
-            )
-            stable = stable + 1 if pid == last_pid and "bot iniciado, esperando facturas" in logs else 0
-            if stable >= 2:
-                return
-            last_pid = pid
+                actual_hash = None
+                if status == "active" and pid != "0":
+                    with open(f"/proc/{int(pid)}/exe", "rb") as binary:
+                        digest = hashlib.sha256()
+                        for chunk in iter(lambda: binary.read(1024 * 1024), b""):
+                            digest.update(chunk)
+                        actual_hash = digest.hexdigest()
+                failure = "el servicio no está activo" if actual_hash is None else "el proceso ejecuta una versión diferente"
+            except (OSError, ValueError):
+                failure = "no se pudo verificar el ejecutable activo"
+            if actual_hash == expected_hash:
+                logs = subprocess.check_output(
+                    ["/usr/bin/journalctl", "-u", self.unit, f"_PID={int(pid)}", "-n", "20", "--no-pager", "-o", "cat"],
+                    text=True, timeout=10,
+                )
+                failure = "no se confirmó el inicio del bot"
+                stable = stable + 1 if pid == last_pid and "bot iniciado, esperando facturas" in logs else 0
+                if stable >= 2:
+                    return
+                last_pid = pid
+            else:
+                stable = 0
+                last_pid = None
             time.sleep(1)
-        raise RuntimeError("no se confirmó el inicio del bot")
+        raise HealthError(failure)
 
 
 def main():

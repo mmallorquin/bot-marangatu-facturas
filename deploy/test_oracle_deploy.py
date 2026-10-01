@@ -8,6 +8,7 @@ import sys
 import unittest
 from pathlib import Path
 from contextlib import closing
+from unittest.mock import patch
 
 import oracle_deploy as deploy
 
@@ -99,6 +100,87 @@ class LocalService:
             raise RuntimeError("wrong executable")
 
 
+class SystemdHealthTests(unittest.TestCase):
+    # SHA-256 of b"abc", independent of the implementation under test.
+    expected_hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+    def check_health(self, observations):
+        """Only replace Linux process/journal I/O; exercise real readiness logic."""
+        current = None
+        remaining = iter(observations)
+
+        def command(arguments, **kwargs):
+            nonlocal current
+            if arguments[:2] == ["/usr/bin/systemctl", "show"]:
+                current = next(remaining)
+                return f"ActiveState={current[0]}\nMainPID={current[1]}\n"
+            if arguments[:3] == ["/usr/bin/journalctl", "-u", "bot-marangatu.service"]:
+                self.assertIn(f"_PID={current[1]}", arguments)
+                return "bot iniciado, esperando facturas" if current[3] else ""
+            raise AssertionError(f"unexpected command: {arguments}")
+
+        def binary(path, mode):
+            self.assertEqual(path, f"/proc/{current[1]}/exe")
+            self.assertEqual(mode, "rb")
+            if isinstance(current[2], Exception):
+                raise current[2]
+            return io.BytesIO(current[2])
+
+        with patch.object(deploy.subprocess, "check_output", side_effect=command), \
+                patch("builtins.open", side_effect=binary), \
+                patch.object(deploy.time, "sleep"):
+            return deploy.Systemd().health(self.expected_hash)
+
+    def test_waits_for_exec_before_verifying_the_started_bot(self):
+        # Type=simple can report active while MainPID still runs systemd's
+        # pre-exec helper. A transient wrong hash is not a failed deployment.
+        self.assertIsNone(self.check_health([
+            ("active", 123, b"pre-exec helper", False),
+            ("active", 123, b"abc", True),
+            ("active", 123, b"abc", True),
+            ("active", 123, b"abc", True),
+        ]))
+
+    def test_waits_for_pid_and_proc_to_become_available(self):
+        self.assertIsNone(self.check_health([
+            ("activating", 0, b"", False),
+            ("active", 0, b"", False),
+            ("active", 123, FileNotFoundError("process is still starting"), False),
+            ("active", 123, b"abc", True),
+            ("active", 123, b"abc", True),
+            ("active", 123, b"abc", True),
+        ]))
+
+    def test_never_accepts_a_different_executable_even_with_ready_logs(self):
+        with self.assertRaisesRegex(RuntimeError, "versión diferente"):
+            self.check_health([("active", 123, b"wrong bot", True)] * 45)
+
+    def test_never_accepts_the_expected_executable_without_startup_confirmation(self):
+        with self.assertRaisesRegex(RuntimeError, "no se confirmó"):
+            self.check_health([("active", 123, b"abc", False)] * 45)
+
+    def test_failed_service_is_not_considered_healthy(self):
+        with self.assertRaises(RuntimeError):
+            self.check_health([("failed", 0, b"", False)])
+
+    def test_pid_change_resets_startup_stability(self):
+        with self.assertRaisesRegex(RuntimeError, "no se confirmó"):
+            self.check_health([
+                ("active", 123, b"abc", True),
+                ("active", 123, b"abc", True),
+                ("active", 456, b"abc", True),
+            ] + [("active", 456, b"abc", False)] * 42)
+
+    def test_transient_wrong_executable_resets_startup_stability(self):
+        with self.assertRaisesRegex(RuntimeError, "no se confirmó"):
+            self.check_health([
+                ("active", 123, b"abc", True),
+                ("active", 123, b"abc", True),
+                ("active", 123, b"pre-exec helper", False),
+                ("active", 123, b"abc", True),
+            ] + [("active", 123, b"abc", False)] * 41)
+
+
 class DeployTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -136,6 +218,32 @@ class DeployTests(unittest.TestCase):
         for name, content in self.old.items():
             self.assertEqual((self.paths.target / name).read_bytes(), content)
         self.assertTrue(service.active)
+
+    def test_failed_readiness_reports_its_controlled_reason_after_rollback(self):
+        class UnreadyService(LocalService):
+            def health(self, expected_hash):
+                if (self.target / "bot").read_bytes() != b"old bot":
+                    with patch.object(deploy.subprocess, "check_output", return_value="ActiveState=failed\nMainPID=0\n"):
+                        deploy.Systemd().health(expected_hash)
+                super().health(expected_hash)
+
+        service = UnreadyService(self.paths.target)
+        with self.assertRaisesRegex(RuntimeError, "el servicio no está activo"):
+            deploy.deploy_release(package(release_files()), self.paths, service)
+        self.assertTrue(service.active)
+        self.assertEqual((self.paths.target / "bot").read_bytes(), b"old bot")
+
+    def test_deployment_error_does_not_expose_arbitrary_exception_details(self):
+        class SensitiveFailure(LocalService):
+            def health(self, expected_hash):
+                if (self.target / "bot").read_bytes() != b"old bot":
+                    raise RuntimeError("private token=SECRET")
+                super().health(expected_hash)
+
+        with self.assertRaises(RuntimeError) as caught:
+            deploy.deploy_release(package(release_files()), self.paths, SensitiveFailure(self.paths.target))
+        self.assertNotIn("SECRET", str(caught.exception))
+        self.assertIn("anterior restaurado", str(caught.exception))
 
     def test_invalid_package_leaves_running_service_and_files_untouched(self):
         service = LocalService(self.paths.target)
