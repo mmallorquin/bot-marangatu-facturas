@@ -68,6 +68,11 @@ Después de detener el bot, crea un respaldo SQLite consistente en
 `/var/backups/bot-marangatu/pre-update-<revision>-<fecha>-<id>/` junto con los
 ejecutables anteriores. Reemplaza los binarios de forma atómica, arranca y
 comprueba tanto el ejecutable del PID activo como el mensaje de inicio del bot.
+Con `Type=simple`, systemd puede anunciar el inicio antes de ejecutar el bot:
+el receptor espera esas transiciones dentro de un número acotado de comprobaciones.
+Sólo acepta el hash esperado y una confirmación estable de inicio; un hash distinto
+persistente o un fallo real siguen provocando recuperación. Los errores de esta
+comprobación muestran motivos controlados, sin incluir logs ni excepciones externas.
 Si falla, reinstala los binarios y la revisión anteriores. **No restaura SQLite
 automáticamente:** una migración o nuevas facturas no deben sobrescribirse con
 una copia vieja. Las migraciones de este proyecto deben seguir siendo compatibles
