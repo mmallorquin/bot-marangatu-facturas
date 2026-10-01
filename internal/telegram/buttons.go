@@ -27,6 +27,22 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.answer(ctx, b, query.ID, NoLongerEditableAlert, false)
 		return
 	}
+	if strings.HasPrefix(query.Data, "ep:") {
+		h.handleExportFlowCallback(ctx, b, query, msg)
+		return
+	}
+	if strings.HasPrefix(query.Data, "tp:") {
+		h.handlePresentationCallback(ctx, b, query, msg)
+		return
+	}
+	if strings.HasPrefix(query.Data, historyCallbackPrefix+":") {
+		h.handleHistoryCallback(ctx, b, query, msg)
+		return
+	}
+	if strings.HasPrefix(query.Data, settingsCallbackPrefix+":") {
+		h.handleSettingsCallback(ctx, b, query, msg)
+		return
+	}
 	if strings.HasPrefix(query.Data, exportCallbackPrefix+":") {
 		h.handleExportCallback(ctx, b, query, msg)
 		return
@@ -178,7 +194,7 @@ func (h *handler) answer(ctx context.Context, b *bot.Bot, queryID, text string, 
 
 func (h *handler) editText(ctx context.Context, b *bot.Bot, press buttonPress, text string, keyboard *models.InlineKeyboardMarkup) {
 	_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
-		ChatID: press.chatID, MessageID: press.messageID, Text: text, ReplyMarkup: keyboard,
+		ChatID: press.chatID, MessageID: press.messageID, Text: telegramMessageText(text), ReplyMarkup: keyboard,
 	})
 	if err != nil {
 		h.logger.Error("no se pudo editar el mensaje", "chat_id", press.chatID, "error", Redact(err, h.deps.Token))

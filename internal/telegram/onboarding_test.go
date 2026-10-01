@@ -12,8 +12,8 @@ func TestGuidedSetupAsksRUCThenImputationsWithButtons(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
 
-	// Act: /start, un "hola", un RUC mal escrito, el RUC bien y los botones de impuestos.
-	h.sendText("/start")
+	// Act: Exportar inicia la configuración; /start deja probar una foto primero.
+	h.sendText("/exportar")
 	askRUC := h.telegram.lastSent(t).text
 	h.sendText("hola")
 	hello := h.telegram.lastSent(t).text
@@ -29,7 +29,7 @@ func TestGuidedSetupAsksRUCThenImputationsWithButtons(t *testing.T) {
 
 	// Assert
 	if !strings.Contains(askRUC, "necesito tu RUC") {
-		t.Errorf("/start debería pedir el RUC: %q", askRUC)
+		t.Errorf("/exportar debería pedir el RUC: %q", askRUC)
 	}
 	if hello != HelpMessage {
 		t.Errorf("un saludo recibe la ayuda, no un error de RUC: %q", hello)
@@ -87,7 +87,7 @@ func TestImputeWithoutArgumentsShowsButtonsAndDoneNeedsOne(t *testing.T) {
 
 func TestCancelLeavesTheGuidedSetup(t *testing.T) {
 	h := newHarness(t)
-	h.sendText("/start")
+	h.sendText("/exportar")
 
 	h.sendText("/cancelar")
 	h.sendText("123")

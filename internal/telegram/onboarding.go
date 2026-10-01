@@ -16,8 +16,7 @@ import (
 // Configuración guiada: la primera vez, el bot pide el RUC (se escribe sin comando) y
 // ofrece botones para elegir los impuestos, en vez de pedir /ruc e /imputar.
 const (
-	askRUCOnboarding = "Para armar el archivo de Marangatu necesito tu RUC. Escribilo acá, por ejemplo 1234567-8.\n\n" +
-		"Si preferís probar primero, mandame una foto de una factura y el RUC lo cargás después con /ruc."
+	askRUCOnboarding     = "Para armar el archivo de Marangatu necesito tu RUC. Escribilo acá, por ejemplo 1234567-8.\n\nTambién sirve /ruc 1234567-8. Podés cancelar y seguir cargando fotos."
 	askImputationButtons = "¿A qué impuestos imputás tus compras? Tocá los que correspondan y después ✅ Listo.\n" +
 		"(También podés escribir /imputar iva irp)"
 
@@ -108,6 +107,7 @@ func (h *handler) handleImputeCallback(ctx context.Context, b *bot.Bot, query *m
 		message, keyboard := h.imputationReply(ctx, press.chatID, imp)
 		h.editText(ctx, b, press, message, keyboard)
 		h.answer(ctx, b, press.queryID, "", false)
+		h.resumeConfiguredExport(ctx, b, press.chatID)
 	default:
 		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 	}
@@ -135,26 +135,10 @@ func (h *handler) imputationReply(ctx context.Context, chatID int64, imp store.I
 	return message + "\n\n" + readyToUseMessage, noKeyboard()
 }
 
-// welcome muestra la bienvenida y, si falta el RUC, empieza la configuración guiada.
+// welcome deja probar una factura antes de configurar impuestos.
 func (h *handler) welcome(ctx context.Context, b *bot.Bot, chatID int64) {
+	h.stopOnboarding(ctx, chatID)
 	h.send(ctx, b, chatID, WelcomeMessage, nil)
-	cs, err := h.deps.Store.Settings(ctx, chatID)
-	if err != nil {
-		return
-	}
-	if cs.RUC != "" {
-		if cs.Imputations == (store.Imputations{}) {
-			h.askImputations(ctx, b, chatID)
-		} else if !cs.Registration.Valid() {
-			h.askRegistration(ctx, b, chatID, cs)
-		}
-		return
-	}
-	if err := h.deps.Store.SetAwaitingRUC(ctx, chatID, true); err != nil {
-		h.logger.Error("no se pudo iniciar la configuración", "chat_id", chatID, "error", err)
-		return
-	}
-	h.send(ctx, b, chatID, askRUCOnboarding, nil)
 }
 
 // tryOnboardingRUC toma el texto como RUC si el chat está en la configuración guiada.
@@ -177,7 +161,10 @@ func (h *handler) tryOnboardingRUC(ctx context.Context, b *bot.Bot, chatID int64
 // stopOnboarding sale de la configuración guiada; devuelve true si el chat estaba en ella.
 func (h *handler) stopOnboarding(ctx context.Context, chatID int64) bool {
 	cs, err := h.deps.Store.Settings(ctx, chatID)
-	if err != nil || !cs.AwaitingRUC {
+	if err != nil || (!cs.AwaitingRUC && cs.PendingExport == "") {
+		return false
+	}
+	if err := h.deps.Store.SetPendingExport(ctx, chatID, ""); err != nil {
 		return false
 	}
 	return h.deps.Store.SetAwaitingRUC(ctx, chatID, false) == nil
@@ -194,6 +181,9 @@ func (h *handler) saveRUC(ctx context.Context, b *bot.Bot, chatID int64, ruc str
 		h.logger.Error("no se pudo cerrar la configuración", "chat_id", chatID, "error", err)
 	}
 	h.send(ctx, b, chatID, "✅ RUC guardado: "+ruc, nil)
+	if h.resumePendingExport(ctx, b, chatID) {
+		return
+	}
 	if cs, err := h.deps.Store.Settings(ctx, chatID); err == nil {
 		if cs.Imputations == (store.Imputations{}) {
 			h.askImputations(ctx, b, chatID)

@@ -20,7 +20,7 @@ timbrado, número y montos, lleva horas y genera errores.
 2. El bot extrae los datos: RUC y razón social del emisor, timbrado, número, fecha, condición,
    gravadas 10 % y 5 %, exentas, IVA y total.
 3. Te los muestra para que confirmes o corrijas.
-4. Con `/exportar` ves la previa del período según tu `/registro`, podés revisarla en CSV o Excel y confirmás el ZIP para Marangatu.
+4. En **Exportar** elegís el período según tu registro, revisás CSV o Excel y confirmás el ZIP para Marangatu.
 
 El bot **no se conecta a tu cuenta de Marangatu**: vos subís el archivo. Así no tiene que
 manejar tus credenciales. Guardar o exportar en el bot no presenta tus registros ante la DNIT.
@@ -40,15 +40,19 @@ manejar tus credenciales. Guardar o exportar en el bot no presenta tus registros
 - [x] Validar una importación real del ZIP en Marangatu (confirmado por el administrador).
 - [x] Corregir las instrucciones sobre presentación, electrónicas y conservación de comprobantes.
 - [x] Configurar la obligación de registro 955 mensual o 956 anual según el RUC, separada de la imputación a impuestos.
-- [ ] Distinguir ZIP generado de presentación confirmada por el usuario; revisar recordatorios según el calendario de declaraciones informativas.
+- [x] Distinguir ZIP entregado de presentación marcada manualmente por el usuario (el bot no verifica DNIT).
+- [ ] Revisar el calendario oficial antes de agregar avisos de vencimiento; los actuales son recordatorios de exportación, no vencimientos.
 - [x] Aislar chats privados, proteger borrado durante lecturas y confirmar guardados con validación atómica.
 - [x] Proteger confirmaciones de ZIP y pendientes; registrar entregas y recordatorios después de la respuesta de Telegram.
 - [x] Automatizar pruebas y despliegue a Oracle desde GitHub Actions, con respaldo previo y recuperación del ejecutable.
-- [ ] Simplificar el menú, reunir pendientes y guardadas, y permitir recorrer todo el historial.
-- [ ] Programar un respaldo fuera de Oracle y probar su restauración.
+- [x] Simplificar el menú, reunir pendientes y guardadas, recorrer el historial y corregir sin repetir OCR.
+- [x] Elegir períodos con botones y retomar la exportación después de completar los ajustes.
+- [x] Clasificar errores de OpenRouter y pedir lectura nativa de PDF sin OCR adicional implícito.
+- [ ] Programar un respaldo fuera de Oracle y probar su restauración (postergado por el administrador).
 - [ ] Probar con otros usuarios y medir lecturas, correcciones, errores, costo y tiempo.
 
 El seguimiento normativo y sus límites están en [docs/dnit-vigencia.md](docs/dnit-vigencia.md).
+La prueba propuesta de 50 facturas está preparada en [docs/beta-validacion.md](docs/beta-validacion.md); todavía requiere participantes y comprobantes reales.
 
 ## Stack
 
@@ -109,11 +113,13 @@ lecturas anteriores, aunque el proveedor tarde en responder.
 En Telegram, tocá **Menú** junto al campo de mensaje para elegir un comando. El bot registra
 esas opciones automáticamente al arrancar.
 
-La primera vez, `/start` te pide el RUC (lo escribís tal cual), los impuestos y la obligación
-de registro con botones. Elegí la que figure entre las obligaciones activas de tu RUC en Marangatu.
+La primera vez, `/start` invita a mandar una foto: podés probar sin configurar impuestos.
+En Menú hay cuatro entradas: **Mis facturas**, **Exportar**, **Ajustes** y **Ayuda**.
+Al exportar por primera vez se pide el RUC (lo escribís tal cual), los impuestos y la obligación
+de registro con botones; después se retoma el período solicitado. Elegí la obligación que figure activa en tu RUC en Marangatu.
 El botón **No sé** explica dónde consultarla; el bot no la deduce de los impuestos ni consulta tu cuenta.
 
-1. Mandás la foto de la factura o el PDF. Podés mandar varias juntas, como álbum.
+1. Mandás la foto de la factura o el PDF: una factura por archivo. Podés mandar varias fotos juntas, como álbum. Separá un PDF que reúna varias facturas.
 2. El bot la lee y te la muestra con tres botones:
 
    ```
@@ -126,14 +132,23 @@ El botón **No sé** explica dónde consultarla; el bot no la deduce de los impu
    apenas la lee. Si es electrónica (tiene CDC), no va en el ZIP: obtenela en Marangatu y revisá su imputación.
 
 Con `/autoguardar si`, las facturas que cierran se guardan solas, con un botón **↩️ Deshacer**.
+En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las páginas y
+abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
+sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.
+
+Al recibir el ZIP aparece **Ya presenté en Marangatu**. Tocá esa opción únicamente
+después de confirmar el período en Marangatu y obtener el Talón. La marca es manual;
+si cambian las facturas o los ajustes, la previa advierte que esa confirmación corresponde a datos anteriores.
 
 | Comando | Qué hace |
 |---|---|
 | `/resumen` | Facturas guardadas este mes, con IVA y total |
 | `/resumen 08/2026` | Lo mismo para otro mes |
-| `/facturas` | Lista las facturas guardadas del mes y permite borrar las guardadas por error |
+| `/facturas` | Mis facturas: pendientes, guardadas, totales, páginas y detalle editable |
 | `/facturas 08/2026` | Lo mismo para otro mes (o `/facturas 2026` para el año) |
-| `/exportar` | Previa del mes para 955 o del año para 956; CSV, Excel y ZIP |
+| `/exportar` | Selector de mes para 955 o año para 956; previa, CSV, Excel y ZIP |
+| `/ajustes` | Cambiar RUC, impuestos, registro y preferencias con botones |
+| `/ayuda` | Guía y límites del bot |
 | `/exportar 08/2026` | Lo mismo para otro mes |
 | `/exportar 2026` | Revisión del año entero; genera ZIP solo con registro 956 |
 | `/ruc 1234567-8` | Tu RUC (va en el nombre del archivo) |

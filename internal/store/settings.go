@@ -34,12 +34,14 @@ var ErrRegistrationRUCChanged = errors.New("el RUC cambió o todavía no está c
 
 // ChatSettings es la configuración de un chat.
 type ChatSettings struct {
-	RUC          string
-	Imputations  Imputations
-	Registration Registration
-	AutoSave     bool // guardar sin preguntar las facturas que cierran
-	Reminders    bool // recordar exportar cuando termina el período
-	AwaitingRUC  bool // configuración guiada: el próximo texto es el RUC
+	RUC           string
+	Imputations   Imputations
+	Registration  Registration
+	AutoSave      bool   // guardar sin preguntar las facturas que cierran
+	Reminders     bool   // recordar exportar cuando termina el período
+	AwaitingRUC   bool   // configuración guiada: el próximo texto es el RUC
+	PendingExport string // período solicitado antes de terminar la configuración
+	RUCSetupKey   string // vincula Cancelar a la configuración guiada activa
 }
 
 // defaultSettings es la configuración de un chat que todavía no configuró nada.
@@ -49,9 +51,9 @@ var defaultSettings = ChatSettings{Reminders: true}
 func (s *Store) Settings(ctx context.Context, chatID int64) (ChatSettings, error) {
 	var cs ChatSettings
 	err := s.db.QueryRowContext(ctx, `
-		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc, registration
+		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc, registration, pending_export, ruc_setup_key
 		FROM chat_settings WHERE chat_id = ?`, chatID).
-		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC, &cs.Registration)
+		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC, &cs.Registration, &cs.PendingExport, &cs.RUCSetupKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultSettings, nil
 	}
@@ -108,8 +110,20 @@ func (s *Store) SetReminders(ctx context.Context, chatID int64, on bool) error {
 }
 
 // SetAwaitingRUC marca que el próximo texto del chat es su RUC (configuración guiada).
-func (s *Store) SetAwaitingRUC(ctx context.Context, chatID int64, on bool) error {
-	return s.setFlag(ctx, chatID, "awaiting_ruc", on)
+func (s *Store) SetAwaitingRUC(ctx context.Context, chatID int64, on bool, setupKey ...string) error {
+	key := ""
+	if len(setupKey) > 1 {
+		return errors.New("configuración de RUC inválida")
+	}
+	if on && len(setupKey) == 1 {
+		key = setupKey[0]
+	}
+	if len(key) > 64 {
+		return errors.New("identificador de configuración inválido")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chat_settings (chat_id, awaiting_ruc, ruc_setup_key) VALUES (?, ?, ?)
+		ON CONFLICT (chat_id) DO UPDATE SET awaiting_ruc = excluded.awaiting_ruc, ruc_setup_key = excluded.ruc_setup_key`, chatID, on, key)
+	return err
 }
 
 // setFlag cambia una columna booleana de chat_settings; column viene siempre de este paquete.

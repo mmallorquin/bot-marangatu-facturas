@@ -10,6 +10,16 @@ type chatRequest struct {
 	ResponseFormat responseFormat `json:"response_format"`
 	Provider       providerPrefs  `json:"provider"`
 	Reasoning      *reasoning     `json:"reasoning,omitempty"` // nil = lo que decida el modelo
+	Plugins        []plugin       `json:"plugins,omitempty"`
+}
+
+type plugin struct {
+	ID  string    `json:"id"`
+	PDF pdfEngine `json:"pdf"`
+}
+
+type pdfEngine struct {
+	Engine string `json:"engine"`
 }
 
 // reasoning controla cuánto "piensa" el modelo antes de responder.
@@ -53,18 +63,21 @@ type jsonSchema struct {
 
 // providerPrefs limita a qué proveedores puede enviar OpenRouter la factura.
 type providerPrefs struct {
-	DataCollection    string `json:"data_collection"`    // "deny": sin proveedores que guardan o entrenan con datos
-	ZDR               bool   `json:"zdr"`                // solo endpoints con retención cero
-	RequireParameters bool   `json:"require_parameters"` // solo proveedores que soportan el esquema JSON
+	DataCollection    string `json:"data_collection"`           // "deny": sin proveedores que guardan o entrenan con datos
+	ZDR               bool   `json:"zdr"`                       // solo endpoints con retención cero
+	RequireParameters bool   `json:"require_parameters"`        // solo proveedores que soportan el esquema JSON
+	AllowFallbacks    *bool  `json:"allow_fallbacks,omitempty"` // nil conserva la selección habitual para imágenes
 }
 
 type chatResponse struct {
-	Model   string `json:"model"`
+	Model   string         `json:"model"`
+	Error   *responseError `json:"error"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
+		FinishReason string         `json:"finish_reason"`
+		Error        *responseError `json:"error"`
 	} `json:"choices"`
 	Usage struct {
 		Cost                    float64 `json:"cost"`
@@ -74,4 +87,11 @@ type chatResponse struct {
 			ReasoningTokens int `json:"reasoning_tokens"`
 		} `json:"completion_tokens_details"`
 	} `json:"usage"`
+}
+
+type responseError struct {
+	Code     json.RawMessage `json:"code"`
+	Metadata struct {
+		ErrorType string `json:"error_type"`
+	} `json:"metadata"`
 }
