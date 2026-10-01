@@ -272,7 +272,7 @@ func (h *harness) exportButton(t *testing.T, prefix string) string {
 }
 
 func TestExportRejectsChangedPreview(t *testing.T) {
-	for _, change := range []string{"imputations", "ruc", "invoice", "legacy"} {
+	for _, change := range []string{"imputations", "ruc", "invoice"} {
 		t.Run(change, func(t *testing.T) {
 			h := newHarness(t)
 			h.saveOneInvoice(t)
@@ -293,8 +293,6 @@ func TestExportRejectsChangedPreview(t *testing.T) {
 				h.reader.result.Invoice = inv
 				h.sendPhoto()
 				h.press(callback{action: actionSave, id: 2})
-			case "legacy":
-				old = "x:z:2026-09"
 			}
 			h.pressRaw(old)
 			if len(h.telegram.byMethod("sendDocument")) != 0 {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -138,6 +139,57 @@ func TestSaveRejectsDuplicatesInTheSameChatOnly(t *testing.T) {
 	}
 }
 
+func TestSaveValidatesCurrentInvoiceAfterCallerRead(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	id, err := s.CreateDraft(ctx, chatA, newDraft(sampleInvoice("001-001-0000001", 150_000)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// El usuario confirmó una lectura válida, pero otra corrección terminó
+	// antes del guardado. La confirmación anterior no autoriza datos inválidos.
+	previous, err := s.Get(ctx, chatA, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issues := invoice.Validate(previous.Invoice); len(issues) != 0 {
+		t.Fatalf("lectura inicial inválida: %v", issues)
+	}
+	changed := previous.Invoice
+	changed.Total = 1
+	if err := s.UpdateInvoice(ctx, chatA, id, changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAwaiting(ctx, chatA, id, invoice.FieldTotal); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Save(ctx, chatA, id); !errors.Is(err, ErrInvalidInvoice) {
+		t.Fatalf("Save = %v; debe rechazar un total de 1 cuando las columnas suman 150000", err)
+	}
+	current, err := s.Get(ctx, chatA, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != StatusDraft || current.Invoice.Total != 1 || current.Original.Total != 150_000 {
+		t.Fatalf("la validación alteró el borrador o su original: %+v", current)
+	}
+	if pending, found, err := s.Awaiting(ctx, chatA); err != nil || !found || pending.ID != id {
+		t.Fatalf("la validación perdió la corrección pendiente: %+v, %v, %v", pending, found, err)
+	}
+	if saved, err := s.SavedRecords(ctx, chatA, "2026-09"); err != nil || len(saved) != 0 {
+		t.Fatalf("la factura inválida entró a la exportación: %+v, %v", saved, err)
+	}
+
+	if err := s.UpdateInvoice(ctx, chatA, id, previous.Invoice); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(ctx, chatA, id); err != nil {
+		t.Fatalf("la factura corregida no se pudo guardar: %v", err)
+	}
+}
+
 func TestAwaitingCorrectionIsOnePerChat(t *testing.T) {
 	// Arrange
 	s := openTestStore(t)
@@ -270,5 +322,72 @@ func TestDeleteSavedRejectsDrafts(t *testing.T) {
 
 	if err := s.DeleteSaved(ctx, chatA, id); !errors.Is(err, ErrNotSaved) {
 		t.Errorf("un borrador no se borra con DeleteSaved: %v", err)
+	}
+}
+
+func TestExportDeliveryMigrationKeepsLegacyExportsAndNewReservationsDistinct(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE exports (chat_id INTEGER NOT NULL, period TEXT NOT NULL,
+		seq INTEGER NOT NULL, PRIMARY KEY (chat_id, period));
+		INSERT INTO exports (chat_id, period, seq) VALUES (111, '2026-08', 2);`)
+	_ = old.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	var seq int
+	var delivered string
+	if err := s.db.QueryRow(`SELECT seq, delivered_at FROM exports WHERE chat_id = 111 AND period = '2026-08'`).Scan(&seq, &delivered); err != nil {
+		t.Fatal(err)
+	}
+	if seq != 2 || delivered == "" {
+		t.Fatalf("exportación anterior perdió su estado: seq=%d, delivered=%q", seq, delivered)
+	}
+	if _, err := s.NextExportSeq(context.Background(), chatA, "2026-09"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT seq, delivered_at FROM exports WHERE chat_id = 111 AND period = '2026-09'`).Scan(&seq, &delivered); err != nil {
+		t.Fatal(err)
+	}
+	if seq != 1 || delivered != "" {
+		t.Fatalf("reabrir convirtió una reserva en entrega: seq=%d, delivered=%q", seq, delivered)
+	}
+}
+
+func TestDeleteChatClearsExportRequestsOnlyForThatChat(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, err := s.db.Exec(`INSERT INTO export_requests (chat_id, period, request_key, seq) VALUES
+		(111, '2026-09', 'first', 1), (222, '2026-09', 'other', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteChat(ctx, chatA); err != nil {
+		t.Fatal(err)
+	}
+	var deleted, kept int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM export_requests WHERE chat_id = 111`).Scan(&deleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM export_requests WHERE chat_id = 222`).Scan(&kept); err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 0 || kept != 1 {
+		t.Fatalf("borrado de solicitudes: chat borrado=%d, otro chat=%d", deleted, kept)
 	}
 }

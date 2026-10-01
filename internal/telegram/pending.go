@@ -2,8 +2,11 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -31,41 +34,105 @@ func (h *handler) showPending(ctx context.Context, b *bot.Bot, chatID int64) {
 		return
 	}
 
-	ready := 0
-	for _, rec := range drafts {
-		if invoice.Clean(rec.Invoice) {
-			ready++
-		}
+	readyDrafts, review, duplicates, err := h.classifyPending(ctx, chatID, drafts)
+	if err != nil {
+		h.logger.Error("no se pudieron comprobar los pendientes", "chat_id", chatID, "error", err)
+		h.send(ctx, b, chatID, StoreErrorMessage, nil)
+		return
 	}
+	ready := len(readyDrafts)
 	text := fmt.Sprintf("📥 Tenés %d %s sin guardar: %d %s y %d %s algo para revisar.",
 		len(drafts), plural(len(drafts), "factura", "facturas"),
 		ready, plural(ready, "cierra", "cierran"),
-		len(drafts)-ready, plural(len(drafts)-ready, "tiene", "tienen"))
+		review, plural(review, "tiene", "tienen"))
+	if duplicates > 0 {
+		text += fmt.Sprintf("\n⚠️ %d %s ya %s; no se volverán a guardar. %s desde su mensaje.", duplicates,
+			plural(duplicates, "duplicada", "duplicadas"), plural(duplicates, "estaba guardada", "estaban guardadas"), plural(duplicates, "Descartala", "Descartalas"))
+	}
 	if ready == 0 {
-		h.send(ctx, b, chatID, text+"\n\nCorregilas desde su mensaje, más arriba.", nil)
+		if review > 0 {
+			text += "\n\nCorregilas desde su mensaje, más arriba."
+		}
+		h.send(ctx, b, chatID, text, nil)
 		return
 	}
 	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
-		{Text: fmt.Sprintf("✅ Guardar las %d que cierran", ready), CallbackData: pendingSaveCallback},
+		{Text: fmt.Sprintf("✅ Guardar las %d que cierran", ready), CallbackData: pendingSaveCallback + ":" + pendingRevision(readyDrafts)},
 	}}}
 	h.send(ctx, b, chatID, text, keyboard)
 }
 
+func (h *handler) classifyPending(ctx context.Context, chatID int64, drafts []store.Record) (ready []store.Record, review, duplicates int, err error) {
+	for _, rec := range drafts {
+		if !invoice.Clean(rec.Invoice) {
+			review++
+			continue
+		}
+		alreadySaved, err := h.deps.Store.IsSaved(ctx, chatID, rec.Invoice)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if alreadySaved {
+			duplicates++
+			continue
+		}
+		ready = append(ready, rec)
+	}
+	return ready, review, duplicates, nil
+}
+
+// pendingRevision binds the button to the exact ready IDs and data shown.
+// New arrivals or corrections require a new confirmation instead of expanding a batch.
+func pendingRevision(drafts []store.Record) string {
+	var ready []struct {
+		ID      int64
+		Invoice invoice.Invoice
+	}
+	for _, rec := range drafts {
+		if invoice.Clean(rec.Invoice) {
+			ready = append(ready, struct {
+				ID      int64
+				Invoice invoice.Invoice
+			}{rec.ID, rec.Invoice})
+		}
+	}
+	data, _ := json.Marshal(ready)
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:16])
+}
+
+func (h *handler) handlePendingCallback(ctx context.Context, b *bot.Bot, query *models.CallbackQuery, msg *models.Message) {
+	parts := strings.Split(query.Data, ":")
+	if len(parts) != 3 || parts[0]+":"+parts[1] != pendingSaveCallback || parts[2] == "" {
+		h.answer(ctx, b, query.ID, "Este botón ya no está disponible. Usá /pendientes de nuevo.", true)
+		return
+	}
+	h.saveAllReady(ctx, b, buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID}, parts[2])
+}
+
 // saveAllReady guarda los borradores sin problemas; los demás quedan para revisar.
-func (h *handler) saveAllReady(ctx context.Context, b *bot.Bot, press buttonPress) {
+func (h *handler) saveAllReady(ctx context.Context, b *bot.Bot, press buttonPress, revision string) {
 	drafts, err := h.deps.Store.Drafts(ctx, press.chatID)
 	if err != nil {
 		h.logger.Error("no se pudieron leer los pendientes", "chat_id", press.chatID, "error", err)
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
+	readyDrafts, review, duplicates, err := h.classifyPending(ctx, press.chatID, drafts)
+	if err != nil {
+		h.logger.Error("no se pudieron comprobar los pendientes", "chat_id", press.chatID, "error", err)
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	if revision != pendingRevision(readyDrafts) {
+		h.editText(ctx, b, press, "Los pendientes cambiaron. Revisá el nuevo resumen antes de guardar.", noKeyboard())
+		h.showPending(ctx, b, press.chatID)
+		h.answer(ctx, b, press.queryID, "Los pendientes cambiaron; confirmá el nuevo resumen.", true)
+		return
+	}
 
-	saved, duplicates, review := 0, 0, 0
-	for _, rec := range drafts {
-		if !invoice.Clean(rec.Invoice) {
-			review++
-			continue
-		}
+	saved := 0
+	for _, rec := range readyDrafts {
 		err := h.deps.Store.Save(ctx, press.chatID, rec.ID)
 		switch {
 		case errors.Is(err, store.ErrDuplicate):

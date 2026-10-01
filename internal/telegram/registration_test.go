@@ -232,7 +232,7 @@ func TestRegistrationReminderRoutingUsesExplicitChoice(t *testing.T) {
 			if tc.registration != "" {
 				h.sendText("/registro " + tc.registration)
 			}
-			handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
+			handler := newHandler(Deps{Logger: discardLogger(), Store: h.store})
 			handler.sendDueReminders(context.Background(), h.bot, asuncion(2027, time.January, 15, 10))
 			var reminders []string
 			for _, sent := range h.telegram.byMethod("sendMessage") {

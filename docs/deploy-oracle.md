@@ -34,6 +34,57 @@ ssh hermes-vm 'sudo systemctl restart bot-marangatu.service'
 
 ## Actualizar el ejecutable
 
+### GitHub Actions
+
+El workflow [tests.yml](../.github/workflows/tests.yml) verifica formato, `go vet`,
+pruebas Go con `-race` y las pruebas del receptor de despliegues. En PR no accede al
+servidor. Un push a `main` que pasa esas pruebas compila `bot` y `metricas` para Linux
+amd64 y actualiza Oracle. También puede ejecutarse desde **Actions → tests → Run workflow**
+seleccionando `main`.
+
+El entorno GitHub **production** sólo admite la rama `main` y contiene:
+
+| Configuración | Tipo | Uso |
+|---|---|---|
+| `ORACLE_HOST` | Variable | Dirección del servidor |
+| `ORACLE_PORT` | Variable | Puerto SSH; 22 actualmente |
+| `ORACLE_USER` | Variable | `bot-marangatu-deploy` |
+| `ORACLE_SSH_KEY` | Secret | Clave exclusiva de despliegue |
+| `ORACLE_KNOWN_HOSTS` | Secret | Clave del servidor verificada por un acceso administrativo previo |
+
+Los tokens de Telegram y OpenRouter siguen sólo en `/etc/bot-marangatu.env`.
+La clave de Actions no permite shell, SCP, PTY ni forwarding; únicamente `status`
+y `deploy`. El usuario dedicado no pertenece al grupo del bot ni puede modificar
+el receptor, las claves autorizadas o sus permisos sudo.
+
+El receptor root [oracle_deploy.py](../deploy/oracle_deploy.py) acepta un tar sin
+comprimir con sólo `bot`, `metricas`, `REVISION` y `SHA256SUMS`. Limita tamaños,
+rechaza rutas/enlaces y verifica revisión, arquitectura y checksums antes de
+detener el servicio. Mantiene un bloqueo local, además del bloqueo de Actions,
+para evitar dos despliegues simultáneos. Actions omite un commit si `main` ya
+apunta a otro más nuevo al comenzar la transferencia.
+
+Después de detener el bot, crea un respaldo SQLite consistente en
+`/var/backups/bot-marangatu/pre-update-<revision>-<fecha>-<id>/` junto con los
+ejecutables anteriores. Reemplaza los binarios de forma atómica, arranca y
+comprueba tanto el ejecutable del PID activo como el mensaje de inicio del bot.
+Si falla, reinstala los binarios y la revisión anteriores. **No restaura SQLite
+automáticamente:** una migración o nuevas facturas no deben sobrescribirse con
+una copia vieja. Las migraciones de este proyecto deben seguir siendo compatibles
+con la versión anterior para permitir esa recuperación.
+
+Estos respaldos previos a despliegue permanecen en la VM; no sustituyen un backup
+programado fuera del servidor.
+
+La instalación inicial se hace con la cuenta administrativa: copiar los tres
+archivos de `deploy/` y una clave pública exclusiva a un directorio temporal del
+servidor, y ejecutar `sudo sh setup-actions.sh clave.pub`. El instalador no reinicia
+el bot. La parte privada se guarda con `gh secret set ORACLE_SSH_KEY --env production`
+y nunca se agrega a Git. Actualizaciones del receptor o rotaciones de clave requieren
+el mismo acceso administrativo; el workflow sólo reemplaza los dos binarios y la revisión.
+
+### Actualización manual de recuperación
+
 Compilar el bot y el comando de métricas para la arquitectura del servidor (actualmente Linux x86-64)
 y transferirlos:
 

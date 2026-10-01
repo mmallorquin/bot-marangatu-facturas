@@ -41,7 +41,11 @@ manejar tus credenciales. Guardar o exportar en el bot no presenta tus registros
 - [x] Corregir las instrucciones sobre presentación, electrónicas y conservación de comprobantes.
 - [x] Configurar la obligación de registro 955 mensual o 956 anual según el RUC, separada de la imputación a impuestos.
 - [ ] Distinguir ZIP generado de presentación confirmada por el usuario; revisar recordatorios según el calendario de declaraciones informativas.
-- [ ] Revisar aislamiento y borrado de datos antes de ampliar la beta.
+- [x] Aislar chats privados, proteger borrado durante lecturas y confirmar guardados con validación atómica.
+- [x] Proteger confirmaciones de ZIP y pendientes; registrar entregas y recordatorios después de la respuesta de Telegram.
+- [x] Automatizar pruebas y despliegue a Oracle desde GitHub Actions, con respaldo previo y recuperación del ejecutable.
+- [ ] Simplificar el menú, reunir pendientes y guardadas, y permitir recorrer todo el historial.
+- [ ] Programar un respaldo fuera de Oracle y probar su restauración.
 - [ ] Probar con otros usuarios y medir lecturas, correcciones, errores, costo y tiempo.
 
 El seguimiento normativo y sus límites están en [docs/dnit-vigencia.md](docs/dnit-vigencia.md).
@@ -94,7 +98,11 @@ Necesitás [Go 1.27+](https://go.dev/dl/) y un bot de Telegram.
    ```bash
    go run ./cmd/bot
    ```
-5. Abrí tu bot en Telegram, mandá `/start` y después una foto de una factura.
+5. Abrí tu bot en un chat privado de Telegram, mandá `/start` y después una foto de una factura.
+
+El bot no procesa facturas ni comandos en grupos. Puede descargar/leer hasta dos
+archivos simultáneamente; el resto espera su turno. Borrar tus datos invalida las
+lecturas anteriores, aunque el proveedor tarde en responder.
 
 ## Cómo se usa
 

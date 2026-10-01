@@ -62,10 +62,11 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 
 	token := cfg.TelegramBotToken
 	deps := telegram.Deps{
-		Logger: logger,
-		Token:  token,
-		Reader: invoiceReader,
-		Store:  invoices,
+		Logger:     logger,
+		Token:      token,
+		Reader:     invoiceReader,
+		Store:      invoices,
+		Operations: telegram.NewChatOperations(),
 	}
 	opts := append([]bot.Option{
 		bot.WithDefaultHandler(telegram.NewHandler(deps)),

@@ -48,25 +48,37 @@ type InvoiceStore interface {
 	SetImputations(ctx context.Context, chatID int64, imp store.Imputations) error
 	SetRegistration(ctx context.Context, chatID int64, ruc string, registration store.Registration) error
 	NextExportSeq(ctx context.Context, chatID int64, period string) (int, error)
+	CreateExportRequest(ctx context.Context, chatID int64, period, key string) error
+	ExportRequestStatus(ctx context.Context, chatID int64, period, key string) (bool, error)
+	ReserveExport(ctx context.Context, chatID int64, period, key string) (int, bool, error)
+	MarkExportDelivered(ctx context.Context, chatID int64, period, key string) error
+	CancelExport(ctx context.Context, chatID int64, period, key string) error
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 }
 
 // Deps son las dependencias del handler.
 type Deps struct {
-	Logger *slog.Logger
-	Token  string // solo para ocultarlo en los logs de error
-	Reader reader.Reader
-	Store  InvoiceStore
-	Now    func() time.Time // reloj; en tests se fija una fecha
+	Logger     *slog.Logger
+	Token      string // solo para ocultarlo en los logs de error
+	Reader     reader.Reader
+	Store      InvoiceStore
+	Now        func() time.Time // reloj; en tests se fija una fecha
+	Operations *ChatOperations  // compartido con los recordatorios
 }
 
 // NewHandler devuelve el handler que responde a mensajes y botones.
 func NewHandler(deps Deps) bot.HandlerFunc {
+	return newHandler(deps).handle
+}
+
+func newHandler(deps Deps) *handler {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	h := &handler{deps: deps, logger: deps.Logger, albums: &albums{}}
-	return h.handle
+	if deps.Operations == nil {
+		deps.Operations = NewChatOperations()
+	}
+	return &handler{deps: deps, logger: deps.Logger, albums: &albums{}}
 }
 
 type handler struct {
@@ -76,17 +88,39 @@ type handler struct {
 }
 
 func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update) {
+	if update == nil {
+		return
+	}
 	switch {
 	case update.CallbackQuery != nil:
-		h.handleCallback(ctx, b, update.CallbackQuery)
+		query := update.CallbackQuery
+		msg := query.Message.Message
+		if msg == nil || msg.Chat.Type != models.ChatTypePrivate || msg.Chat.ID <= 0 ||
+			(query.From.ID != 0 && query.From.ID != msg.Chat.ID) {
+			h.answer(ctx, b, query.ID, "Usá el bot desde tu chat privado.", true)
+			return
+		}
+		h.withChat(ctx, msg.Chat.ID, func(ctx context.Context) { h.handleCallback(ctx, b, query) })
 	case update.Message != nil:
-		h.handleMessage(ctx, b, update.Message)
+		msg := update.Message
+		if msg.Chat.Type != models.ChatTypePrivate || msg.Chat.ID <= 0 {
+			if msg.Chat.ID != 0 {
+				h.send(ctx, b, msg.Chat.ID, "Para cuidar tus facturas, usá el bot desde tu chat privado.", nil)
+			}
+			return
+		}
+		file, kind := imageFileOf(msg)
+		if kind == imageSupported {
+			h.handleImageMessage(ctx, b, msg, file)
+			return
+		}
+		h.withChat(ctx, msg.Chat.ID, func(ctx context.Context) { h.handleMessage(ctx, b, msg) })
 	}
 }
 
 func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Message) {
 	chatID := msg.Chat.ID
-	file, kind := imageFileOf(msg)
+	_, kind := imageFileOf(msg)
 	switch kind {
 	case notAnImage:
 		h.handleText(ctx, b, chatID, msg.Text)
@@ -96,20 +130,35 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 	case imageTooLarge:
 		h.track(ctx, chatID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailSize})
 		h.send(ctx, b, chatID, TooLargeMessage, nil)
-	case imageSupported:
-		detail := store.EventDetailImage
-		if file.mimeType == pdfMimeType {
-			detail = store.EventDetailPDF
-		}
-		h.track(ctx, chatID, store.Event{Kind: store.EventPhoto, Detail: detail})
-		switch {
-		case msg.MediaGroupID == "":
-			h.send(ctx, b, chatID, ReadingMessage, nil)
-		case h.albums.first(msg.MediaGroupID, time.Now()):
-			h.send(ctx, b, chatID, ReadingAlbumMessage, nil)
-		}
-		h.processImage(ctx, b, chatID, file)
 	}
+}
+
+func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *models.Message, file imageFile) {
+	c := h.deps.Operations.chat(msg.Chat.ID)
+	c.mu.Lock()
+	ctx = operationContext(ctx, c)
+	op := currentOperation(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	c.reads[op] = cancel
+	detail := store.EventDetailImage
+	if file.mimeType == pdfMimeType {
+		detail = store.EventDetailPDF
+	}
+	h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhoto, Detail: detail})
+	switch {
+	case msg.MediaGroupID == "":
+		h.send(ctx, b, msg.Chat.ID, ReadingMessage, nil)
+	case h.albums.first(msg.MediaGroupID, time.Now()):
+		h.send(ctx, b, msg.Chat.ID, ReadingAlbumMessage, nil)
+	}
+	c.mu.Unlock()
+	defer func() {
+		cancel()
+		c.mu.Lock()
+		delete(c.reads, op)
+		c.mu.Unlock()
+	}()
+	h.processImage(ctx, b, msg.Chat.ID, file)
 }
 
 func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text string) {
@@ -174,31 +223,61 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, file imageFile) {
 	ctx, cancel := context.WithTimeout(ctx, processTimeout)
 	defer cancel()
+	select {
+	case h.deps.Operations.reads <- struct{}{}:
+		defer func() { <-h.deps.Operations.reads }()
+	case <-ctx.Done():
+		h.finishRead(ctx, func(ctx context.Context) {
+			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
+			h.send(ctx, b, chatID, ReadErrorMessage, nil)
+		})
+		return
+	}
 
 	data, err := downloadFile(ctx, b, file.fileID)
 	if err != nil {
-		h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.deps.Token))
-		h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-		h.send(ctx, b, chatID, ReadErrorMessage, nil)
+		h.finishRead(ctx, func(ctx context.Context) {
+			h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.deps.Token))
+			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
+			h.send(ctx, b, chatID, ReadErrorMessage, nil)
+		})
 		return
 	}
 
 	start := time.Now()
 	result, err := h.deps.Reader.Read(ctx, reader.Image{Data: data, MimeType: file.mimeType})
 	if err != nil {
-		h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
-		h.track(ctx, chatID, store.Event{
-			Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
+		h.finishRead(ctx, func(ctx context.Context) {
+			h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
+			h.track(ctx, chatID, store.Event{
+				Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
+			})
+			h.send(ctx, b, chatID, ReadErrorMessage, nil)
 		})
-		h.send(ctx, b, chatID, ReadErrorMessage, nil)
 		return
 	}
+	h.finishRead(ctx, func(ctx context.Context) { h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds()) })
+}
 
+// finishRead confirma que el usuario no borró datos durante la lectura y usa un
+// plazo nuevo para guardar/responder, aunque haya vencido el plazo de la IA.
+func (h *handler) finishRead(ctx context.Context, finish func(context.Context)) {
+	op := currentOperation(ctx)
+	op.chat.mu.Lock()
+	defer op.chat.mu.Unlock()
+	if op.generation != op.chat.generation {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	finish(ctx)
+}
+
+func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64, result reader.Result, seconds float64) {
 	inv := result.Invoice
 	// Se conserva el resultado del lector intacto para guardarlo como original.
 	inv.Number = invoice.NormalizeNumber(inv.Number)
 	issues := invoice.Validate(inv)
-	seconds := time.Since(start).Seconds()
 	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
 	h.logger.Info("factura leída",
 		"chat_id", chatID,
@@ -345,6 +424,9 @@ func readEvent(inv invoice.Invoice, issues []invoice.Issue, seconds, cost float6
 // track registra un evento para las métricas. Si falla, el usuario no se entera.
 // Usa su propio plazo: una lectura que venció por timeout también tiene que quedar registrada.
 func (h *handler) track(ctx context.Context, chatID int64, e store.Event) {
+	if op := currentOperation(ctx); op != nil && op.generation != op.chat.generation {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), trackTimeout)
 	defer cancel()
 	if err := h.deps.Store.LogEvent(ctx, chatID, e); err != nil {
@@ -353,14 +435,16 @@ func (h *handler) track(ctx context.Context, chatID int64, e store.Event) {
 }
 
 // send envía un mensaje; keyboard puede ser nil.
-func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text string, keyboard *models.InlineKeyboardMarkup) {
+func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text string, keyboard *models.InlineKeyboardMarkup) error {
 	params := &bot.SendMessageParams{ChatID: chatID, Text: text}
 	if keyboard != nil {
 		params.ReplyMarkup = keyboard
 	}
-	if _, err := b.SendMessage(ctx, params); err != nil {
+	_, err := b.SendMessage(ctx, params)
+	if err != nil {
 		h.logger.Error("no se pudo responder", "chat_id", chatID, "error", Redact(err, h.deps.Token))
 	}
+	return err
 }
 
 // NewErrorsHandler reemplaza el log de errores de la librería, que imprime el token.

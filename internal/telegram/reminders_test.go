@@ -5,10 +5,36 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
 )
 
 func asuncion(year int, month time.Month, day, hour int) time.Time {
 	return time.Date(year, month, day, hour, 0, 0, 0, reminderLocation)
+}
+
+func TestRemindersDoNotSendInvoiceInformationToLegacyGroups(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	const groupID int64 = -123456
+	id, err := h.store.CreateDraft(ctx, groupID, store.Draft{Invoice: sampleInvoice()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, err := range []error{
+		h.store.Save(ctx, groupID, id),
+		h.store.SetRUC(ctx, groupID, "80024627-6"),
+		h.store.SetRegistration(ctx, groupID, "80024627-6", store.RegistrationMonthly),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := newHandler(Deps{Logger: discardLogger(), Store: h.store})
+	handler.sendDueReminders(ctx, h.bot, asuncion(2026, 10, 3, 10))
+	if sent := h.telegram.byMethod("sendMessage"); len(sent) != 0 {
+		t.Fatalf("se enviaron datos de facturas al grupo: %d mensajes", len(sent))
+	}
 }
 
 func TestDuePeriods(t *testing.T) {
@@ -38,7 +64,7 @@ func TestMonthlyReminderIsSentOnceAndNotAfterExporting(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/registro 955")
-	handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
+	handler := newHandler(Deps{Logger: discardLogger(), Store: h.store})
 	october := asuncion(2026, 10, 3, 10)
 
 	// Act: dos revisiones seguidas.
@@ -78,7 +104,7 @@ func TestNoReminderAfterExportingOrWhenDisabled(t *testing.T) {
 			h := newHarness(t)
 			h.saveOneInvoice(t)
 			setup(t, h)
-			handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
+			handler := newHandler(Deps{Logger: discardLogger(), Store: h.store})
 
 			handler.sendDueReminders(context.Background(), h.bot, asuncion(2026, 10, 5, 10))
 
@@ -97,7 +123,7 @@ func TestAnnualReminderForRegistration956InJanuary(t *testing.T) {
 	h.sendText("/imputar irp")
 	h.sendText("/ruc 80024627-6")
 	h.sendText("/registro 956")
-	handler := &handler{deps: Deps{Logger: discardLogger(), Store: h.store}, logger: discardLogger(), albums: &albums{}}
+	handler := newHandler(Deps{Logger: discardLogger(), Store: h.store})
 
 	handler.sendDueReminders(context.Background(), h.bot, asuncion(2027, 1, 15, 10))
 

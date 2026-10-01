@@ -36,10 +36,7 @@ var reminderLocation = func() *time.Location {
 
 // RunReminders revisa cada media hora si hay recordatorios para mandar, hasta que ctx se cancela.
 func RunReminders(ctx context.Context, b *bot.Bot, deps Deps) {
-	h := &handler{deps: deps, logger: deps.Logger, albums: &albums{}}
-	if h.deps.Now == nil {
-		h.deps.Now = time.Now
-	}
+	h := newHandler(deps)
 	ticker := time.NewTicker(reminderCheckEvery)
 	defer ticker.Stop()
 	for {
@@ -90,20 +87,42 @@ func (h *handler) remind(ctx context.Context, b *bot.Bot, period string, applies
 		return
 	}
 	for _, c := range candidates {
-		if !applies(c) {
+		if c.ChatID <= 0 || !applies(c) {
 			continue
 		}
-		// Se anota antes de mandar: si el usuario bloqueó el bot, no se reintenta cada media hora.
-		if err := h.deps.Store.MarkReminded(ctx, c.ChatID, period); err != nil {
-			h.logger.Error("no se pudo anotar el recordatorio", "chat_id", c.ChatID, "error", err)
-			continue
-		}
-		h.send(ctx, b, c.ChatID, reminderMessage(period, c.Invoices), nil)
-		detail := "mensual"
-		if isAnnual(period) {
-			detail = "anual"
-		}
-		h.track(ctx, c.ChatID, store.Event{Kind: store.EventReminder, Detail: detail})
+		h.withChat(ctx, c.ChatID, func(ctx context.Context) {
+			// The initial list may have changed while another operation deleted
+			// the chat, delivered its ZIP or disabled reminders.
+			current, err := h.deps.Store.ReminderCandidates(ctx, period)
+			if err != nil {
+				h.logger.Error("no se pudo comprobar el recordatorio", "chat_id", c.ChatID, "error", err)
+				return
+			}
+			var eligible *store.ReminderCandidate
+			for index := range current {
+				if current[index].ChatID == c.ChatID && applies(current[index]) {
+					eligible = &current[index]
+					break
+				}
+			}
+			if eligible == nil {
+				return
+			}
+			if err := h.send(ctx, b, c.ChatID, reminderMessage(period, eligible.Invoices), nil); err != nil {
+				return
+			}
+			recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), deliveryRecordTimeout)
+			defer cancelRecord()
+			if err := h.deps.Store.MarkReminded(recordCtx, c.ChatID, period); err != nil {
+				h.logger.Error("no se pudo anotar el recordatorio", "chat_id", c.ChatID, "error", err)
+				return
+			}
+			detail := "mensual"
+			if isAnnual(period) {
+				detail = "anual"
+			}
+			h.track(ctx, c.ChatID, store.Event{Kind: store.EventReminder, Detail: detail})
+		})
 	}
 }
 

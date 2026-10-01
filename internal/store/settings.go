@@ -222,7 +222,7 @@ func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]Remind
 		LEFT JOIN chat_settings cs ON cs.chat_id = i.chat_id
 		WHERE i.status = ? AND i.period BETWEEN ? AND ?
 			AND COALESCE(cs.reminders, 1) = 1
-			AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.chat_id = i.chat_id AND e.period = ?)
+			AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.chat_id = i.chat_id AND e.period = ? AND e.delivered_at != '')
 			AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.chat_id = i.chat_id AND r.period = ?)
 		GROUP BY i.chat_id ORDER BY i.chat_id`,
 		StatusSaved, first, last, period, period)

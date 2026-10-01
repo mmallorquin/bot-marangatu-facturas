@@ -1,19 +1,88 @@
-# Corre los tests en cada push y PR. No despliega nada.
+# Verifica todos los PR; despliega sólo main después de pasar las pruebas.
 name: tests
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
       - run: go test -race ./...
+      - run: python3 -m unittest discover -s deploy -p 'test_*.py'
+      - run: sh -n deploy/receive.sh
+      - run: sh -n deploy/setup-actions.sh
+
+  deploy:
+    needs: tests
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: bot-marangatu-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Compilar la revisión probada para Linux amd64
+        env:
+          RELEASE_REVISION: ${{ github.sha }}
+        run: |
+          mkdir release
+          env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o release/bot ./cmd/bot
+          env GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o release/metricas ./cmd/metricas
+          printf '%s\n' "$RELEASE_REVISION" > release/REVISION
+          (cd release && sha256sum bot metricas REVISION > SHA256SUMS)
+          tar -cf release.tar -C release bot metricas REVISION SHA256SUMS
+      - name: Desplegar y verificar Oracle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REVISION: ${{ github.sha }}
+          ORACLE_HOST: ${{ vars.ORACLE_HOST }}
+          ORACLE_PORT: ${{ vars.ORACLE_PORT }}
+          ORACLE_USER: ${{ vars.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$latest" != "$RELEASE_REVISION" ]; then
+            echo 'Una revisión más nueva llegó a main; se omite este despliegue.'
+            exit 0
+          fi
+          : "${ORACLE_HOST:?Falta ORACLE_HOST}" "${ORACLE_USER:?Falta ORACLE_USER}"
+          : "${ORACLE_SSH_KEY:?Falta ORACLE_SSH_KEY}" "${ORACLE_KNOWN_HOSTS:?Falta ORACLE_KNOWN_HOSTS}"
+          deploy_credentials=$(mktemp -d)
+          trap 'rm -f "$deploy_credentials/key" "$deploy_credentials/known_hosts"; rmdir "$deploy_credentials"' EXIT
+          umask 077
+          printf '%s\n' "$ORACLE_SSH_KEY" > "$deploy_credentials/key"
+          printf '%s\n' "$ORACLE_KNOWN_HOSTS" > "$deploy_credentials/known_hosts"
+          ssh -F /dev/null -i "$deploy_credentials/key" \
+            -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$deploy_credentials/known_hosts" \
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -p "${ORACLE_PORT:-22}" "$ORACLE_USER@$ORACLE_HOST" deploy < release.tar
+          printf '### Oracle actualizado\n\nRevisión: `%s`\n' "$RELEASE_REVISION" >> "$GITHUB_STEP_SUMMARY"

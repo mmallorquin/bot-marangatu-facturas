@@ -106,7 +106,7 @@ func TestPDFIsReadAndCountedAsPDF(t *testing.T) {
 
 	// Act
 	h.send(&models.Update{Message: &models.Message{
-		Chat:     models.Chat{ID: testChatID},
+		Chat:     models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Document: &models.Document{FileID: "pdf", MimeType: "application/pdf", FileSize: 200_000},
 	}})
 

@@ -162,7 +162,7 @@ func (h *harness) send(update *models.Update) {
 }
 
 func (h *harness) sendText(text string) {
-	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID}, Text: text}})
+	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate}, Text: text}})
 }
 
 func (h *harness) sendPhoto() {
@@ -171,7 +171,7 @@ func (h *harness) sendPhoto() {
 
 func photoUpdate() *models.Update {
 	return &models.Update{Message: &models.Message{
-		Chat: models.Chat{ID: testChatID},
+		Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Photo: []models.PhotoSize{
 			{FileID: "chica", Width: 90, Height: 120},
 			{FileID: "grande", Width: 1280, Height: 1706},
@@ -182,10 +182,11 @@ func photoUpdate() *models.Update {
 func (h *harness) press(c callback) {
 	h.send(&models.Update{CallbackQuery: &models.CallbackQuery{
 		ID:   "cb",
+		From: models.User{ID: testChatID},
 		Data: c.encode(),
 		Message: models.MaybeInaccessibleMessage{
 			Type:    models.MaybeInaccessibleMessageTypeMessage,
-			Message: &models.Message{ID: 10, Chat: models.Chat{ID: testChatID}},
+			Message: &models.Message{ID: 10, Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate}},
 		},
 	}})
 }
@@ -194,10 +195,11 @@ func (h *harness) press(c callback) {
 func (h *harness) pressRaw(data string) {
 	h.send(&models.Update{CallbackQuery: &models.CallbackQuery{
 		ID:   "cb-export",
+		From: models.User{ID: testChatID},
 		Data: data,
 		Message: models.MaybeInaccessibleMessage{
 			Type:    models.MaybeInaccessibleMessageTypeMessage,
-			Message: &models.Message{ID: 20, Chat: models.Chat{ID: testChatID}},
+			Message: &models.Message{ID: 20, Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate}},
 		},
 	}})
 }
@@ -453,7 +455,7 @@ func TestUnsupportedFilesAreRejectedWithoutCallingTheReader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 
-			h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID}, Document: tc.doc}})
+			h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate}, Document: tc.doc}})
 
 			if len(h.reader.received) != 0 || h.telegram.lastSent(t).text != tc.want {
 				t.Errorf("lector llamado %d veces, respuesta %q", len(h.reader.received), h.telegram.lastSent(t).text)

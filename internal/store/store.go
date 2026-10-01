@@ -33,10 +33,11 @@ const (
 )
 
 var (
-	ErrNotFound  = errors.New("factura no encontrada")
-	ErrNotDraft  = errors.New("la factura ya fue guardada o descartada")
-	ErrDuplicate = errors.New("esa factura ya está guardada")
-	ErrNotSaved  = errors.New("la factura no está guardada")
+	ErrNotFound       = errors.New("factura no encontrada")
+	ErrNotDraft       = errors.New("la factura ya fue guardada o descartada")
+	ErrDuplicate      = errors.New("esa factura ya está guardada")
+	ErrNotSaved       = errors.New("la factura no está guardada")
+	ErrInvalidInvoice = errors.New("la factura tiene datos inválidos")
 )
 
 const schema = `
@@ -79,6 +80,18 @@ CREATE TABLE IF NOT EXISTS exports (
 	period  TEXT    NOT NULL, -- AAAA-MM
 	seq     INTEGER NOT NULL, -- número de archivo del período: V0001, V0002...
 	PRIMARY KEY (chat_id, period)
+);
+
+-- Una solicitud identifica un botón de exportación y permite reintentar
+-- una entrega fallida sin reservar otra secuencia ni repetir una entrega exitosa.
+CREATE TABLE IF NOT EXISTS export_requests (
+	chat_id      INTEGER NOT NULL,
+	period       TEXT    NOT NULL,
+	request_key  TEXT    NOT NULL,
+	seq          INTEGER NOT NULL,
+	delivered_at TEXT    NOT NULL DEFAULT '',
+	cancelled    INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (chat_id, period, request_key)
 );
 
 -- Uso del bot para las métricas de la beta. Sin datos de las facturas.
@@ -165,23 +178,36 @@ var addedColumns = []struct{ table, column, definition string }{
 	{"chat_settings", "auto_save", "INTEGER NOT NULL DEFAULT 0"},    // guardar solo las que cierran
 	{"chat_settings", "reminders", "INTEGER NOT NULL DEFAULT 1"},    // recordatorio de exportar
 	{"chat_settings", "awaiting_ruc", "INTEGER NOT NULL DEFAULT 0"}, // configuración guiada: el próximo texto es el RUC
+	{"exports", "delivered_at", "TEXT NOT NULL DEFAULT ''"},         // reservar el número no confirma la entrega
 }
 
 func migrate(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("iniciando las migraciones: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	for _, c := range addedColumns {
 		var exists bool
-		err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`, c.table, c.column).Scan(&exists)
+		err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`, c.table, c.column).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("revisando la columna %s.%s: %w", c.table, c.column, err)
 		}
 		if exists {
 			continue
 		}
-		if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.definition)); err != nil {
+		if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.definition)); err != nil {
 			return fmt.Errorf("agregando la columna %s.%s: %w", c.table, c.column, err)
 		}
+		if c.table == "exports" && c.column == "delivered_at" {
+			// La versión anterior consideraba toda exportación como entregada.
+			// Conservamos esa interpretación sin inventar una fecha de entrega.
+			if _, err := tx.Exec(`UPDATE exports SET delivered_at = 'legacy'`); err != nil {
+				return fmt.Errorf("preservando las exportaciones anteriores: %w", err)
+			}
+		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // OpenReadOnly abre una base existente sin poder modificarla, para consultarla
@@ -271,7 +297,8 @@ func (s *Store) UpdateInvoice(ctx context.Context, chatID, id int64, inv invoice
 	})
 }
 
-// Save confirma un borrador. Devuelve ErrDuplicate si el chat ya guardó la misma factura.
+// Save confirma un borrador validando sus datos actuales dentro de la transacción.
+// Devuelve ErrInvalidInvoice si son incoherentes y ErrDuplicate si ya está guardada.
 func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 	return s.inDraftTx(ctx, chatID, id, func(tx *sql.Tx) error {
 		inv, err := currentInvoice(ctx, tx, id)
@@ -279,6 +306,9 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 			return err
 		}
 		inv.Number = invoice.NormalizeNumber(inv.Number)
+		if len(invoice.Validate(inv)) != 0 {
+			return ErrInvalidInvoice
+		}
 		data, err := json.Marshal(inv)
 		if err != nil {
 			return fmt.Errorf("serializando la factura normalizada: %w", err)
@@ -363,7 +393,7 @@ func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
 		return 0, fmt.Errorf("borrando las facturas: %w", err)
 	}
 	deleted, _ := res.RowsAffected()
-	for _, table := range []string{"chat_settings", "exports", "reminders", "events"} {
+	for _, table := range []string{"chat_settings", "exports", "export_requests", "reminders", "events"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE chat_id = ?", chatID); err != nil {
 			return 0, fmt.Errorf("borrando %s: %w", table, err)
 		}
