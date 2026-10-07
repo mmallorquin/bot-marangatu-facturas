@@ -53,6 +53,8 @@ manejar tus credenciales. Guardar o exportar en el bot no presenta tus registros
 
 El seguimiento normativo y sus límites están en [docs/dnit-vigencia.md](docs/dnit-vigencia.md).
 La prueba propuesta de 50 facturas está preparada en [docs/beta-validacion.md](docs/beta-validacion.md); todavía requiere participantes y comprobantes reales.
+El diagnóstico de negocio (dolor, ICP, validación, landing, precio, retención y unit economics) está en
+[docs/diagnostico-saas.md](docs/diagnostico-saas.md), hecho con la skill `saas-playbook` de `.claude/skills/`.
 
 ## Stack
 
