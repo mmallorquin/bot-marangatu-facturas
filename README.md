@@ -1,6 +1,23 @@
-# bot-marangatu-facturas
+# Bot de facturas para Marangatu
 
-Olvidate de transcribir facturas a mano: mandá la foto y el bot prepara el archivo para Marangatu.
+Prepará tus registros de compras a partir de una foto o PDF, con revisión antes de exportar.
+
+[Ver bot en Telegram](https://t.me/facturas_marangatu_bot)
+
+El bot recibe comprobantes por **Telegram**, extrae los datos y permite corregirlos.
+Después genera archivos de revisión y un ZIP para que el usuario lo importe manualmente en Marangatu.
+
+**Estado del proyecto:** MVP en preparación de beta con usuarios externos. La documentación
+registra una importación validada por el administrador; todavía falta medir el resultado con otras personas.
+
+**Flujo actual:** foto o PDF → extracción → revisión y corrección → exportación → importación manual por el usuario.
+
+- **Disponible:** recepción por Telegram, extracción de campos, validaciones, corrección, guardado y exportación.
+- **Próximo paso:** probar con usuarios externos y medir lecturas, correcciones, errores, costo y tiempo.
+- **Hoja de ruta:** WhatsApp y la carga automática en Marangatu son funciones futuras.
+
+El bot **no solicita tu contraseña de Marangatu ni realiza la presentación por vos**.
+Generar o importar un archivo no confirma una presentación ante la DNIT.
 
 > 🚧 Proyecto en construcción, hecho **en público**. Seguí el avance en X con **#buildinpublic**.
 
@@ -10,10 +27,10 @@ En Paraguay, quienes liquidan IVA o IRP tienen que registrar sus comprobantes de
 [Marangatu](https://marangatu.set.gov.py) (RG 90). Hacerlo factura por factura, copiando RUC,
 timbrado, número y montos, lleva horas y genera errores.
 
-## La idea
+## Cómo funciona
 
 ```
-📸 Foto de la factura ──► 🤖 Bot de Telegram ──► 🧠 IA lee los datos ──► 📊 Planilla lista para importar en Marangatu
+📸 Foto o PDF → 🤖 Telegram → 🧠 Extracción → ✏️ Revisión → 📦 ZIP → Importación manual
 ```
 
 1. Le sacás una foto a la factura (o reenviás el PDF) y se la mandás al bot.
