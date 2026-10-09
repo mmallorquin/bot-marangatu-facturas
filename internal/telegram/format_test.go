@@ -3,6 +3,7 @@ package telegram
 import (
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 )
@@ -102,5 +103,52 @@ func TestFormatInvoiceDoesNotSuggestRetakingForFewProblems(t *testing.T) {
 
 	if strings.Contains(text, RetakeTip) {
 		t.Errorf("con un solo problema no hace falta otra foto:\n%s", text)
+	}
+}
+
+func TestFormatInvoiceBoundsLongAlertsAndKeepsEssentialData(t *testing.T) {
+	inv := sampleInvoice()
+	uncertain := make([]string, 100)
+	for i := range uncertain {
+		uncertain[i] = strings.Repeat("campo🧾", 100)
+	}
+	inv.UncertainFields = uncertain
+	issues := []invoice.Issue{{Field: invoice.FieldIssuerRUC, Message: strings.Repeat("revisar🧾", 100)}}
+	text := FormatInvoice(inv, issues)
+
+	if units := len(utf16.Encode([]rune(text))); units > 2000 {
+		t.Fatalf("el formato excede su presupuesto para presentación: %d unidades UTF-16", units)
+	}
+	for _, want := range []string{"revisar", "No se lee bien", "Hay más avisos", inv.Number, inv.IssuerName, "80000519-8", "12345678", "Total: 150.000 Gs"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("falta %q en la respuesta acotada:\n%s", want, text)
+		}
+	}
+}
+
+func TestFormatInvoiceBoundsUntrustedPrimaryText(t *testing.T) {
+	inv := sampleInvoice()
+	inv.Number = strings.Repeat("N", 5000)
+	inv.IssuerName = strings.Repeat("🧾", 3000)
+	inv.IssuerRUC = strings.Repeat("R", 5000)
+	inv.Timbrado = strings.Repeat("T", 5000)
+	inv.Date = strings.Repeat("D", 5000)
+	inv.Condition = strings.Repeat("C", 5000)
+	inv.Currency = strings.Repeat("M", 5000)
+	inv.UncertainFields = []string{invoice.FieldTotal}
+	text := FormatInvoice(inv, []invoice.Issue{{Field: invoice.FieldIssuerRUC, Message: "Revisá el RUC"}})
+
+	if units := len(utf16.Encode([]rune(text))); units > 2000 {
+		t.Fatalf("el formato excede su presupuesto para presentación: %d unidades UTF-16", units)
+	}
+	for _, want := range []string{"Revisá el RUC", "No se lee bien: total", "Total: 150.000 "} {
+		if !strings.Contains(text, want) {
+			t.Errorf("falta contenido esencial %q:\n%s", want, text)
+		}
+	}
+	for _, raw := range []string{strings.Repeat("N", 200), strings.Repeat("R", 200), strings.Repeat("T", 200), strings.Repeat("D", 200), strings.Repeat("C", 200), strings.Repeat("M", 200)} {
+		if strings.Contains(text, raw) {
+			t.Errorf("texto libre sin acotar: %q", raw[:16])
+		}
 	}
 }

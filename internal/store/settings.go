@@ -157,11 +157,26 @@ func (s *Store) SavedInvoices(ctx context.Context, chatID int64, period string) 
 	if err != nil {
 		return nil, err
 	}
+	if hasDuplicateRecords(saved) {
+		return nil, ErrDuplicateInvoices
+	}
 	invoices := make([]invoice.Invoice, len(saved))
 	for i, rec := range saved {
 		invoices[i] = rec.Invoice
 	}
 	return invoices, nil
+}
+
+func hasDuplicateRecords(saved []SavedRecord) bool {
+	seen := make(map[string]bool, len(saved))
+	for _, rec := range saved {
+		key := dedupKey(rec.Invoice)
+		if seen[key] {
+			return true
+		}
+		seen[key] = true
+	}
+	return false
 }
 
 // SavedRecord es una factura guardada con su ID, para poder borrarla.
@@ -197,6 +212,7 @@ func (s *Store) SavedRecords(ctx context.Context, chatID int64, period string) (
 		if err := json.Unmarshal([]byte(data), &rec.Invoice); err != nil {
 			return nil, fmt.Errorf("leyendo una factura: %w", err)
 		}
+		rec.Invoice = normalizeInvoiceIdentity(rec.Invoice)
 		saved = append(saved, rec)
 	}
 	return saved, rows.Err()

@@ -21,7 +21,7 @@ recuerda la confirmación anual incluso sin movimiento. No se puede inferir ause
 - Implementado: instrucciones de confirmación, revisión de imputación electrónica, conservación y aviso condicional sin movimiento; pruebas de esas respuestas.
 - Implementado: `/registro` elige 955/956 por chat, independiente de `/imputar`. Sin elección o con período incompatible no se genera ZIP; CSV/Excel siguen disponibles. Las sugerencias y el tipo de aviso siguen la elección, no los impuestos. El usuario debe verificarla en su RUC; el bot no certifica que corresponda legalmente.
 - Migración: las bases existentes conservan los datos y quedan sin elección automática. Cambiar de RUC requiere volver a elegir; cambiar impuestos no modifica el registro.
-- Pendiente: seguimiento de presentación reportada por el usuario. Hoy generar un ZIP detiene los recordatorios del período, aunque no pruebe presentación.
+- Implementado: seguimiento manual de presentación reportada por el usuario, vinculado a la versión entregada. El ZIP recibido ofrece marcar la presentación cuando se obtenga el Talón; el bot no verifica esa declaración en DNIT. Los recordatorios de exportación se detienen al registrar una entrega, no al generar o reservar el ZIP.
 - Pendiente: calendario y excepciones. Los avisos actuales son de exportación, no vencimientos oficiales.
 - Fuera de esta beta de compras IVA/IRP: reglas especiales de fideicomisos de garantía de la [RG 36/2025](https://www.dnit.gov.py/documents/20123/1374136/Res.%2BGeneral%2BDNIT%2BN%C2%B0%2B36_2025.pdf/40e71397-7b27-6aa5-e161-7349f0e02218?t=1757706846937).
 
@@ -30,3 +30,5 @@ no deben convertirse en un vencimiento permanente. Antes de implementar fechas s
 
 El formato del ZIP sigue documentado en [rg90-compras.md](rg90-compras.md).
 Una importación aceptada valida ese archivo, no acredita todas las obligaciones del contribuyente.
+
+Estado funcional contrastado con el código el 9 de octubre de 2026. La fecha de revisión normativa permanece sin cambios.

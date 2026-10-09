@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // driver SQLite en Go puro (sin cgo)
@@ -33,11 +34,12 @@ const (
 )
 
 var (
-	ErrNotFound       = errors.New("factura no encontrada")
-	ErrNotDraft       = errors.New("la factura ya fue guardada o descartada")
-	ErrDuplicate      = errors.New("esa factura ya está guardada")
-	ErrNotSaved       = errors.New("la factura no está guardada")
-	ErrInvalidInvoice = errors.New("la factura tiene datos inválidos")
+	ErrNotFound          = errors.New("factura no encontrada")
+	ErrNotDraft          = errors.New("la factura ya fue guardada o descartada")
+	ErrDuplicate         = errors.New("esa factura ya está guardada")
+	ErrNotSaved          = errors.New("la factura no está guardada")
+	ErrInvalidInvoice    = errors.New("la factura tiene datos inválidos")
+	ErrDuplicateInvoices = errors.New("hay facturas guardadas con la misma identidad")
 )
 
 const schema = `
@@ -46,12 +48,13 @@ CREATE TABLE IF NOT EXISTS invoices (
 	chat_id        INTEGER NOT NULL,
 	status         TEXT    NOT NULL,
 	invoice_json   TEXT    NOT NULL, -- datos actuales (con correcciones)
-	original_json  TEXT    NOT NULL, -- lo que leyó la IA, para medir precisión
+	original_json  TEXT    NOT NULL, -- lo que leyó la IA, para comparar correcciones
 	model          TEXT    NOT NULL,
 	cost_usd       REAL    NOT NULL,
 	corrected      INTEGER NOT NULL DEFAULT 0,
 	awaiting_field TEXT,             -- campo que el usuario está corrigiendo
 	dedup_key      TEXT,             -- tipo|RUC|timbrado|número, se completa al guardar
+	canonical_dedup_key TEXT NOT NULL DEFAULT '', -- identidad normalizada, incluso en bases anteriores
 	period         TEXT,             -- AAAA-MM de la fecha de la factura, al guardar
 	created_at     TEXT    NOT NULL,
 	updated_at     TEXT    NOT NULL
@@ -144,13 +147,14 @@ type Pending struct {
 
 // Summary suma las facturas guardadas de un mes.
 type Summary struct {
-	Count   int
-	Exempt  int64
-	Taxed5  int64
-	Taxed10 int64
-	VAT5    int64
-	VAT10   int64
-	Total   int64
+	HasDuplicates bool // los totales incluyen copias que el usuario debe resolver
+	Count         int
+	Exempt        int64
+	Taxed5        int64
+	Taxed10       int64
+	VAT5          int64
+	VAT10         int64
+	Total         int64
 }
 
 // Store es el repositorio de facturas.
@@ -184,6 +188,7 @@ func Open(path string) (*Store, error) {
 // addedColumns son columnas que se agregaron después de crear la tabla. Las bases existentes
 // las reciben al abrirse, sin perder datos.
 var addedColumns = []struct{ table, column, definition string }{
+	{"invoices", "canonical_dedup_key", "TEXT NOT NULL DEFAULT ''"},
 	{"chat_settings", "registration", "TEXT NOT NULL DEFAULT '' CHECK (registration IN ('', '955', '956'))"},
 	{"chat_settings", "auto_save", "INTEGER NOT NULL DEFAULT 0"},    // guardar solo las que cierran
 	{"chat_settings", "reminders", "INTEGER NOT NULL DEFAULT 1"},    // recordatorio de exportar
@@ -220,7 +225,59 @@ func migrate(db *sql.DB) error {
 			}
 		}
 	}
+	// No es único: una base anterior puede contener colisiones. Se conservan
+	// todas las facturas y la exportación pide resolverlas antes de continuar.
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS invoices_saved_canonical
+		ON invoices (chat_id, canonical_dedup_key) WHERE status = 'guardada'`); err != nil {
+		return fmt.Errorf("indexando la identidad de las facturas: %w", err)
+	}
+	if err := backfillCanonicalKeys(tx); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// backfillCanonicalKeys añade identidad sin reescribir datos, originales ni estados.
+// Se repite al abrir para cubrir filas creadas o corregidas por una versión anterior.
+func backfillCanonicalKeys(tx *sql.Tx) error {
+	rows, err := tx.Query(`SELECT id, invoice_json, canonical_dedup_key FROM invoices
+		WHERE status = 'guardada'`)
+	if err != nil {
+		return fmt.Errorf("leyendo identidades anteriores: %w", err)
+	}
+	defer rows.Close()
+	type identity struct {
+		id  int64
+		key string
+	}
+	var identities []identity
+	for rows.Next() {
+		var id int64
+		var data, previousKey string
+		if err := rows.Scan(&id, &data, &previousKey); err != nil {
+			return fmt.Errorf("leyendo identidad anterior: %w", err)
+		}
+		var inv invoice.Invoice
+		if err := json.Unmarshal([]byte(data), &inv); err != nil {
+			// No incluir el contenido fiscal en el diagnóstico de una migración.
+			return fmt.Errorf("no se pudo leer la identidad de la factura %d", id)
+		}
+		if key := dedupKey(inv); key != previousKey {
+			identities = append(identities, identity{id: id, key: key})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("leyendo identidades anteriores: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, entry := range identities {
+		if _, err := tx.Exec(`UPDATE invoices SET canonical_dedup_key = ? WHERE id = ?`, entry.key, entry.id); err != nil {
+			return fmt.Errorf("registrando identidad anterior: %w", err)
+		}
+	}
+	return nil
 }
 
 // OpenReadOnly abre una base existente sin poder modificarla, para consultarla
@@ -253,7 +310,7 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura: %w", err)
 	}
-	d.Invoice.Number = invoice.NormalizeNumber(d.Invoice.Number)
+	d.Invoice = normalizeInvoiceIdentity(d.Invoice)
 	data, err := json.Marshal(d.Invoice)
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura normalizada: %w", err)
@@ -291,13 +348,14 @@ func (s *Store) Get(ctx context.Context, chatID, id int64) (Record, error) {
 	if err := json.Unmarshal([]byte(originJSON), &rec.Original); err != nil {
 		return Record{}, fmt.Errorf("leyendo la lectura original: %w", err)
 	}
-	// También permite revisar borradores creados antes de la normalización.
-	rec.Invoice.Number = invoice.NormalizeNumber(rec.Invoice.Number)
+	// También permite revisar facturas creadas antes de la normalización.
+	rec.Invoice = normalizeInvoiceIdentity(rec.Invoice)
 	return rec, nil
 }
 
 // UpdateInvoice reemplaza los datos de un borrador y lo marca como corregido.
 func (s *Store) UpdateInvoice(ctx context.Context, chatID, id int64, inv invoice.Invoice) error {
+	inv = normalizeInvoiceIdentity(inv)
 	data, err := json.Marshal(inv)
 	if err != nil {
 		return fmt.Errorf("serializando la factura: %w", err)
@@ -318,7 +376,7 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 		if err != nil {
 			return err
 		}
-		inv.Number = invoice.NormalizeNumber(inv.Number)
+		inv = normalizeInvoiceIdentity(inv)
 		if len(invoice.Validate(inv)) != 0 {
 			return ErrInvalidInvoice
 		}
@@ -330,7 +388,7 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 
 		var exists bool
 		err = tx.QueryRowContext(ctx, `
-			SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND dedup_key = ?)`,
+			SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND canonical_dedup_key = ?)`,
 			chatID, StatusSaved, key).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("buscando duplicados: %w", err)
@@ -340,8 +398,8 @@ func (s *Store) Save(ctx context.Context, chatID, id int64) error {
 		}
 
 		_, err = tx.ExecContext(ctx, `
-			UPDATE invoices SET status = ?, invoice_json = ?, dedup_key = ?, period = ?, awaiting_field = NULL, updated_at = ?
-			WHERE id = ?`, StatusSaved, data, key, periodOf(inv.Date), timestamp(), id)
+			UPDATE invoices SET status = ?, invoice_json = ?, dedup_key = ?, canonical_dedup_key = ?, period = ?, awaiting_field = NULL, updated_at = ?
+			WHERE id = ?`, StatusSaved, data, key, key, periodOf(inv.Date), timestamp(), id)
 		return err
 	})
 }
@@ -380,7 +438,7 @@ func (s *Store) Drafts(ctx context.Context, chatID int64) ([]Record, error) {
 // Unsave vuelve una factura guardada a borrador (el "Deshacer" del guardado automático).
 func (s *Store) Unsave(ctx context.Context, chatID, id int64) error {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE invoices SET status = ?, dedup_key = NULL, period = NULL, updated_at = ?
+		UPDATE invoices SET status = ?, dedup_key = NULL, canonical_dedup_key = '', period = NULL, updated_at = ?
 		WHERE id = ? AND chat_id = ? AND status = ?`,
 		StatusDraft, timestamp(), id, chatID, StatusSaved)
 	if err != nil {
@@ -419,10 +477,9 @@ func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
 
 // IsSaved indica si el chat ya guardó esta misma factura (mismo tipo, RUC, timbrado y número).
 func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error) {
-	inv.Number = invoice.NormalizeNumber(inv.Number)
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND dedup_key = ?)`,
+		SELECT EXISTS (SELECT 1 FROM invoices WHERE chat_id = ? AND status = ? AND canonical_dedup_key = ?)`,
 		chatID, StatusSaved, dedupKey(inv)).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("buscando duplicados: %w", err)
@@ -502,14 +559,15 @@ func (s *Store) ClearAwaiting(ctx context.Context, chatID int64) error {
 
 // MonthSummary suma las facturas guardadas del chat en el período AAAA-MM.
 func (s *Store) MonthSummary(ctx context.Context, chatID int64, period string) (Summary, error) {
-	invoices, err := s.SavedInvoices(ctx, chatID, period)
+	saved, err := s.SavedRecords(ctx, chatID, period)
 	if err != nil {
 		return Summary{}, err
 	}
 	var sum Summary
-	for _, inv := range invoices {
-		sum = addInvoice(sum, inv)
+	for _, rec := range saved {
+		sum = addInvoice(sum, rec.Invoice)
 	}
+	sum.HasDuplicates = hasDuplicateRecords(saved)
 	return sum, nil
 }
 
@@ -565,7 +623,14 @@ func currentInvoice(ctx context.Context, tx *sql.Tx, id int64) (invoice.Invoice,
 
 // dedupKey identifica una factura: el mismo emisor no repite tipo, timbrado y número.
 func dedupKey(inv invoice.Invoice) string {
+	inv = normalizeInvoiceIdentity(inv)
 	return fmt.Sprintf("%s|%s|%s|%s", inv.Type, inv.IssuerRUC, inv.Timbrado, inv.Number)
+}
+
+func normalizeInvoiceIdentity(inv invoice.Invoice) invoice.Invoice {
+	inv.Number = invoice.NormalizeNumber(inv.Number)
+	inv.IssuerRUC = invoice.NormalizeRUC(strings.TrimSpace(inv.IssuerRUC))
+	return inv
 }
 
 // periodOf devuelve AAAA-MM de una fecha AAAA-MM-DD.

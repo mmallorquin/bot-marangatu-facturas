@@ -101,6 +101,33 @@ func TestSummarizeMeasuresAgreementWithTheMajority(t *testing.T) {
 	}
 }
 
+func TestConsensusRequiresStrictMajorityOfValidInvoiceVotes(t *testing.T) {
+	first := validInvoice(100)
+	second := validInvoice(200)
+	third := validInvoice(300)
+	other := validInvoice(400)
+	cases := []struct {
+		name string
+		runs []Run
+		want string
+	}{
+		{name: "2:1 majority", runs: []Run{run("2:1", deepseek, first, 0, 0), run("2:1", gemini, first, 0, 0), run("2:1", haiku, second, 0, 0)}, want: "80000519-8|001-001-0001234|100"},
+		{name: "2:2 tie", runs: []Run{run("2:2", deepseek, first, 0, 0), run("2:2", gemini, first, 0, 0), run("2:2", haiku, second, 0, 0), run("2:2", Setup{Model: "fourth"}, second, 0, 0)}},
+		{name: "3:3 tie", runs: []Run{run("3:3", deepseek, first, 0, 0), run("3:3", gemini, first, 0, 0), run("3:3", haiku, first, 0, 0), run("3:3", Setup{Model: "fourth"}, second, 0, 0), run("3:3", Setup{Model: "fifth"}, second, 0, 0), run("3:3", Setup{Model: "sixth"}, second, 0, 0)}},
+		{name: "2:1:1 pluralidad", runs: []Run{run("2:1:1", deepseek, first, 0, 0), run("2:1:1", gemini, first, 0, 0), run("2:1:1", haiku, second, 0, 0), run("2:1:1", Setup{Model: "fourth"}, third, 0, 0)}},
+		{name: "errors and non-invoices outside denominator", runs: []Run{run("excluded", deepseek, first, 0, 0), run("excluded", gemini, first, 0, 0), run("excluded", haiku, second, 0, 0), {Photo: "excluded", Setup: Setup{Model: "fourth"}, Err: errors.New("unavailable")}, run("excluded", Setup{Model: "fifth"}, invoice.Invoice{}, 0, 0)}, want: "80000519-8|001-001-0001234|100"},
+		{name: "single vote is insufficient", runs: []Run{run("single", deepseek, other, 0, 0)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := consensus(tc.runs)[tc.runs[0].Photo]
+			if got != tc.want {
+				t.Errorf("consensus = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSetupLabel(t *testing.T) {
 	if deepseek.Label() != "deepseek/deepseek-v4.1-flash (por defecto)" {
 		t.Errorf("Label() = %q", deepseek.Label())

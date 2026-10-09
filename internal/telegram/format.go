@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 )
@@ -43,6 +44,17 @@ var fieldLabels = map[string]string{
 	invoice.FieldCDC:        "CDC",
 }
 
+const maxIssuerDisplayUTF16 = 160
+
+const (
+	maxReviewDisplayUTF16 = 900
+	maxNumberDisplayUTF16 = 64
+	maxRUCDisplayUTF16    = 48
+	maxTimbradoDisplay    = 32
+	maxDateDisplayUTF16   = 24
+	maxShortDisplayUTF16  = 32
+)
+
 // FormatInvoice arma el mensaje que el bot le muestra al usuario.
 func FormatInvoice(inv invoice.Invoice, issues []invoice.Issue) string {
 	if !inv.IsInvoice {
@@ -50,13 +62,36 @@ func FormatInvoice(inv invoice.Invoice, issues []invoice.Issue) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "🧾 %s %s\n", labelOr(typeLabels, inv.Type, "Comprobante"), inv.Number)
-	fmt.Fprintf(&b, "Emisor: %s\n", inv.IssuerName)
-	fmt.Fprintf(&b, "RUC: %s · Timbrado: %s\n", inv.IssuerRUC, inv.Timbrado)
-	fmt.Fprintf(&b, "Fecha: %s · %s\n\n", displayDate(inv.Date), labelOr(conditionLabels, inv.Condition, inv.Condition))
-	b.WriteString(formatAmounts(inv))
-	b.WriteString("\n")
 	b.WriteString(formatReview(inv.UncertainFields, issues))
+	b.WriteString("\n\n")
+	fmt.Fprintf(&b, "🧾 %s %s\n", truncateUTF16(labelOr(typeLabels, inv.Type, "Comprobante"), maxShortDisplayUTF16), truncateUTF16(inv.Number, maxNumberDisplayUTF16))
+	fmt.Fprintf(&b, "Emisor: %s\n", truncateUTF16(inv.IssuerName, maxIssuerDisplayUTF16))
+	fmt.Fprintf(&b, "RUC: %s · Timbrado: %s\n", truncateUTF16(inv.IssuerRUC, maxRUCDisplayUTF16), truncateUTF16(inv.Timbrado, maxTimbradoDisplay))
+	fmt.Fprintf(&b, "Fecha: %s · %s\n\n", truncateUTF16(displayDate(inv.Date), maxDateDisplayUTF16), truncateUTF16(labelOr(conditionLabels, inv.Condition, inv.Condition), maxShortDisplayUTF16))
+	b.WriteString(formatAmounts(inv))
+	return b.String()
+}
+
+func truncateUTF16(value string, maxUnits int) string {
+	units := 0
+	for _, r := range value {
+		units += utf16.RuneLen(r)
+	}
+	if units <= maxUnits {
+		return value
+	}
+	const suffix = "…"
+	remaining := maxUnits - utf16.RuneLen([]rune(suffix)[0])
+	var b strings.Builder
+	for _, r := range value {
+		runeUnits := utf16.RuneLen(r)
+		if runeUnits > remaining {
+			break
+		}
+		b.WriteRune(r)
+		remaining -= runeUnits
+	}
+	b.WriteString(suffix)
 	return b.String()
 }
 
@@ -73,7 +108,7 @@ func formatAmounts(inv invoice.Invoice) string {
 	}
 	currency := "Gs"
 	if inv.Currency != invoice.CurrencyPYG {
-		currency = inv.Currency
+		currency = truncateUTF16(inv.Currency, maxShortDisplayUTF16)
 	}
 	fmt.Fprintf(&b, "Total: %s %s\n", formatGs(inv.Total), currency)
 	return b.String()
@@ -86,20 +121,55 @@ func formatReview(uncertain []string, issues []invoice.Issue) string {
 
 	var b strings.Builder
 	b.WriteString("⚠️ Revisá:\n")
-	for _, issue := range issues {
-		fmt.Fprintf(&b, "• %s\n", issue.Message)
-	}
-	if len(uncertain) > 0 {
-		labels := make([]string, 0, len(uncertain))
-		for _, field := range uncertain {
-			labels = append(labels, fieldLabel(field))
+	omitted := false
+	appendLine := func(line string) bool {
+		separator := "• "
+		if b.Len() > len("⚠️ Revisá:\n") {
+			separator = "\n• "
 		}
-		fmt.Fprintf(&b, "• No se lee bien: %s\n", strings.Join(labels, ", "))
+		if utf16Length(b.String()+separator+line) > maxReviewDisplayUTF16-utf16Length("\n• Hay más avisos; revisá los campos antes de guardar.") {
+			return false
+		}
+		b.WriteString(separator)
+		b.WriteString(line)
+		return true
+	}
+	for _, issue := range issues {
+		if !appendLine(truncateUTF16(issue.Message, 240)) {
+			omitted = true
+			break
+		}
+		if utf16Length(issue.Message) > 240 {
+			omitted = true
+		}
+	}
+	for _, field := range uncertain {
+		label := fieldLabel(field)
+		if !appendLine("No se lee bien: " + truncateUTF16(label, 64)) {
+			omitted = true
+			break
+		}
+		if utf16Length(label) > 64 {
+			omitted = true
+		}
 	}
 	if len(uncertain)+len(issues) >= retakeThreshold {
-		b.WriteString("\n" + RetakeTip)
+		if !appendLine(RetakeTip) {
+			omitted = true
+		}
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	if omitted {
+		b.WriteString("\n• Hay más avisos; revisá los campos antes de guardar.")
+	}
+	return b.String()
+}
+
+func utf16Length(value string) int {
+	units := 0
+	for _, r := range value {
+		units += utf16.RuneLen(r)
+	}
+	return units
 }
 
 // displayDate convierte AAAA-MM-DD a DD/MM/AAAA; si no puede, devuelve el texto original.

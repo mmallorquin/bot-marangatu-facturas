@@ -302,6 +302,83 @@ func TestReadClassifiesUnusableModelResponses(t *testing.T) {
 	}
 }
 
+func TestParseResultRequiresEveryInvoiceField(t *testing.T) {
+	var complete map[string]any
+	if err := json.Unmarshal([]byte(invoiceJSON), &complete); err != nil {
+		t.Fatal(err)
+	}
+	for field := range complete {
+		t.Run(field, func(t *testing.T) {
+			partial := make(map[string]any, len(complete)-1)
+			for key, value := range complete {
+				if key != field {
+					partial[key] = value
+				}
+			}
+			raw, _ := json.Marshal(partial)
+			_, err := parseResult([]byte(fakeChatResponse(string(raw), "stop")))
+			assertResponseError(t, err)
+		})
+	}
+}
+
+func TestParseResultRejectsNullForEveryInvoiceField(t *testing.T) {
+	var complete map[string]any
+	if err := json.Unmarshal([]byte(invoiceJSON), &complete); err != nil {
+		t.Fatal(err)
+	}
+	for field := range complete {
+		t.Run(field, func(t *testing.T) {
+			withNull := make(map[string]any, len(complete))
+			for key, value := range complete {
+				withNull[key] = value
+			}
+			withNull[field] = nil
+			raw, _ := json.Marshal(withNull)
+			_, err := parseResult([]byte(fakeChatResponse(string(raw), "stop")))
+			assertResponseError(t, err)
+		})
+	}
+}
+
+func TestParseResultEnforcesEmbeddedSchemaContract(t *testing.T) {
+	cases := map[string]string{
+		"invalid tipo enum":      strings.Replace(invoiceJSON, `"tipo":"factura"`, `"tipo":"Factura"`, 1),
+		"invalid condicion enum": strings.Replace(invoiceJSON, `"condicion":"contado"`, `"condicion":"CONTADO"`, 1),
+		"wrong boolean type":     strings.Replace(invoiceJSON, `"es_comprobante":true`, `"es_comprobante":"true"`, 1),
+		"wrong integer type":     strings.Replace(invoiceJSON, `"total":150000`, `"total":"150000"`, 1),
+		"wrong array item type":  strings.Replace(invoiceJSON, `"campos_dudosos":[]`, `"campos_dudosos":[1]`, 1),
+		"extra field":            strings.TrimSuffix(invoiceJSON, `}`) + `,"unexpected":true}`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseResult([]byte(fakeChatResponse(content, "stop")))
+			assertResponseError(t, err)
+		})
+	}
+}
+
+func TestParseResultPreservesCompleteNonInvoiceResponse(t *testing.T) {
+	content := `{"es_comprobante":false,"tipo":"otro","ruc_emisor":"","razon_social_emisor":"",` +
+		`"timbrado":"","numero":"","fecha":"","condicion":"contado","moneda":"",` +
+		`"exentas":0,"gravada_5":0,"gravada_10":0,"iva_5":0,"iva_10":0,"total":0,"cdc":"","campos_dudosos":[]}`
+	result, err := parseResult([]byte(fakeChatResponse(content, "stop")))
+	if err != nil {
+		t.Fatalf("complete non-invoice should remain a usable response: %v", err)
+	}
+	if result.Invoice.IsInvoice || result.Invoice.Type != "otro" || result.Invoice.UncertainFields == nil || len(result.Invoice.UncertainFields) != 0 {
+		t.Errorf("non-invoice content changed: %+v", result.Invoice)
+	}
+}
+
+func assertResponseError(t *testing.T, err error) {
+	t.Helper()
+	var classified reader.ClassifiedError
+	if !errors.As(err, &classified) || classified.Kind() != reader.ErrorResponse || classified.Retryable() {
+		t.Fatalf("expected safe non-retryable response error, got %v", err)
+	}
+}
+
 func TestReadRejectsErrorsEmbeddedInSuccessfulHTTPResponse(t *testing.T) {
 	// Si se ignora un error junto a contenido válido, se guardaría una factura incompleta.
 	partial := fakeChatResponse(invoiceJSON, "error")
