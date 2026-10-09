@@ -6,8 +6,8 @@ Resultados de `go run ./cmd/comparar -razonamiento defecto,none` sobre 9 fotos r
 **Cómo leer la tabla**
 
 - **✅ Limpias**: la factura pasó todas las validaciones (RUC, IVA, total, formatos) sin campos dudosos.
-- **Coinciden**: fotos donde RUC, número y total coinciden con la mayoría de los modelos.
-  No hay "respuestas correctas" cargadas todavía, así que el acuerdo entre modelos es una aproximación a la precisión.
+- **Coinciden**: acuerdo de RUC, número y total entre modelos. Desde la corrección del 9 de octubre de 2026 se exige mayoría estricta de las lecturas que terminaron sin error y se clasificaron como factura, con al menos dos votos. Empates y pluralidades sin mayoría quedan sin consenso.
+  No hay "respuestas correctas" cargadas todavía: el acuerdo no acredita precisión de lectura. La tabla histórica siguiente usó el cálculo anterior y no se recalculó con las nuevas reglas.
 - **Tokens razon.**: tokens de "razonamiento" promedio. Se cobran como salida y hacen más lenta la respuesta.
 
 ## 2026-09-25

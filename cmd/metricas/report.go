@@ -41,16 +41,17 @@ func formatReport(m store.Metrics, days, excluded int, perUser bool) string {
 	line(&b, "Duplicadas", "%d", m.Duplicates)
 	line(&b, "Guardar bloqueado", "%d (datos que no cierran)", m.Blocked)
 
-	section(&b, "🎯 Calidad de la lectura")
+	section(&b, "🎯 Revisión y correcciones")
 	line(&b, "Guardadas sin corregir", "%d de %d %s", m.SavedClean, m.Saved, pct(m.SavedClean, m.Saved))
 	if len(m.FieldAccuracy) == 0 {
-		line(&b, "Campos mal leídos", "ninguno")
+		line(&b, "Diferencias registradas", "ninguna")
 	}
 	for _, f := range m.FieldAccuracy {
 		line(&b, "  "+f.Field, "corregido en %d de %d guardadas %s", f.Corrected, m.SavedCompared, pct(f.Corrected, m.SavedCompared))
 	}
 	line(&b, "Correcciones hechas", "%s", formatCorrections(m.Corrections))
 	line(&b, "Correcciones inválidas", "%d", m.BadCorrections)
+	b.WriteString("  Comparar versiones no mide la exactitud de la lectura contra el comprobante.\n")
 
 	section(&b, "💸 Costo y velocidad")
 	line(&b, "Costo OpenRouter", "USD %.4f", m.CostUSD)
@@ -58,7 +59,8 @@ func formatReport(m store.Metrics, days, excluded int, perUser bool) string {
 		line(&b, "Costo por guardada", "USD %.4f", m.CostUSD/float64(m.Saved))
 	}
 	line(&b, "Lectura", "%.1f s promedio · %.1f s p90", m.AvgSeconds, m.P90Seconds)
-	line(&b, "Foto → guardada (mediana)", "%s", humanDuration(m.MedianToSave))
+	line(&b, "Borrador → guardada (mediana)", "%s", humanDuration(m.MedianToSave))
+	b.WriteString("  Desde la creación del borrador hasta su último guardado; excluye descarga y lectura de IA.\n")
 
 	section(&b, "🧭 Funciones")
 	line(&b, "/resumen", "%d", m.Summaries)

@@ -83,7 +83,8 @@ type FieldCount struct {
 	Count int
 }
 
-// FieldAccuracy es cuántas facturas guardadas tuvieron que corregir un campo.
+// FieldAccuracy cuenta diferencias registradas entre lectura y versión guardada.
+// No mide exactitud contra el comprobante original.
 type FieldAccuracy struct {
 	Field     string
 	Corrected int
@@ -131,10 +132,10 @@ type Metrics struct {
 	Corrections    []FieldCount // de más a menos corregido
 	BadCorrections int
 
-	// Precisión real de la IA: lo que leyó contra lo que el usuario guardó
+	// Comparación de versiones: no constituye una medición independiente de precisión.
 	SavedCompared int             // facturas guardadas del período que se pudieron comparar
 	FieldAccuracy []FieldAccuracy // solo campos corregidos al menos una vez, de más a menos
-	MedianToSave  time.Duration   // desde que llegó la foto hasta que se guardó
+	MedianToSave  time.Duration   // desde que se creó el borrador hasta su último guardado
 
 	// Otros comandos y fricción
 	Summaries      int
@@ -414,9 +415,9 @@ func changedFields(originalJSON, finalJSON string) ([]string, error) {
 	if err := json.Unmarshal([]byte(finalJSON), &final); err != nil {
 		return nil, err
 	}
-	// El número se normaliza al leer: eso no es una corrección del usuario.
-	original.Number = invoice.NormalizeNumber(original.Number)
-	final.Number = invoice.NormalizeNumber(final.Number)
+	// La identidad se normaliza al leer: eso no es una corrección del usuario.
+	original = normalizeInvoiceIdentity(original)
+	final = normalizeInvoiceIdentity(final)
 
 	before, err := fieldValues(original)
 	if err != nil {

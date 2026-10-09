@@ -112,6 +112,9 @@ func (h *handler) historyList(ctx context.Context, chatID int64, c historyCallba
 	fmt.Fprintf(&text, "📂 Mis facturas · %s\n\n%d %s · %d %s\nTotal guardado: %s Gs · IVA: %s Gs\n",
 		periodTitle(c.period), len(drafts), plural(len(drafts), "pendiente", "pendientes"),
 		len(saved), plural(len(saved), "factura guardada", "facturas guardadas"), formatGs(sum.Total), formatGs(sum.VAT5+sum.VAT10))
+	if sum.HasDuplicates {
+		text.WriteString("\n⚠️ Los totales incluyen duplicados. Abrí las copias y quitá la sobrante antes de exportar.\n")
+	}
 	if c.tab == "p" {
 		text.WriteString("\n📥 Pendientes de todos los períodos. Abrí una para revisar, corregir o guardar.\n")
 	} else {

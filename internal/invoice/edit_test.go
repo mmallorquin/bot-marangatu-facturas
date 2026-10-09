@@ -87,6 +87,51 @@ func TestEditRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestParseAmountAcceptsPYGIntegerFormats(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want int64
+	}{
+		{"150000", 150_000},
+		{"150.000", 150_000},
+		{"150,000", 150_000},
+		{"₲ 150000", 150_000},
+		{"150.000 Gs", 150_000},
+		{"Gs. 1.234.567", 1_234_567},
+		{"150,000 gs", 150_000},
+		{"150000 ₲", 150_000},
+		{"0", 0},
+		{"9.223.372.036.854.775.807", 9_223_372_036_854_775_807},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.raw, func(t *testing.T) {
+			got, err := parseAmount(tc.raw)
+			if err != nil {
+				t.Fatalf("parseAmount(%q) error inesperado: %v", tc.raw, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseAmount(%q) = %d, se esperaba %d", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseAmountRejectsDecimalAmbiguousAndMalformedFormats(t *testing.T) {
+	for _, raw := range []string{
+		"150.000,00", "150,00", "150.00", "1.23.456", "1234.567",
+		"1,234.567", "1.234,567", "150..000", "150,,000", "150 000",
+		"₲  150000", "150000  Gs", "Gs ₲ 150000", "150000 Gs ₲",
+		"9.223.372.036.854.775.808",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := parseAmount(raw); err == nil {
+				t.Fatalf("parseAmount(%q) debía rechazar el formato", raw)
+			}
+		})
+	}
+}
+
 func TestEditUnknownFieldReturnsSentinelError(t *testing.T) {
 	_, err := Edit(validInvoice(), "campo_inventado", "x")
 

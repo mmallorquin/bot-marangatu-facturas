@@ -28,7 +28,6 @@ var dateInputLayouts = []string{dateLayout, "2/1/2006", "2-1-2006"}
 var (
 	onlyDigits      = regexp.MustCompile(`^\d+$`)
 	numberParts     = regexp.MustCompile(`^(\d{1,3})-(\d{1,3})-(\d+)$`)
-	amountNoise     = strings.NewReplacer(".", "", ",", "", " ", "", "Gs", "", "gs", "", "GS", "", "₲", "")
 	whitespaceNoise = strings.NewReplacer(" ", "", "\t", "")
 )
 
@@ -125,11 +124,93 @@ func parseCondition(raw string) (string, error) {
 	return "", fmt.Errorf("la condición %q no es válida: escribí contado o crédito", raw)
 }
 
-// parseAmount acepta montos como "150.000", "150,000", "₲ 150000" o "150.000 Gs".
+// parseAmount acepta montos enteros en PYG, sin separador o con grupos de miles
+// de tres dígitos. Los puntos y las comas solo se aceptan como separadores de
+// miles; nunca se interpreta ni se trunca una parte decimal.
 func parseAmount(raw string) (int64, error) {
-	digits := amountNoise.Replace(raw)
-	if !onlyDigits.MatchString(digits) {
-		return 0, fmt.Errorf("el monto %q no es válido: escribí solo números, por ejemplo 150.000", raw)
+	invalid := func() (int64, error) {
+		return 0, fmt.Errorf("el monto %q no es válido: escribí un entero en guaraníes, por ejemplo 150000 o 150.000; no se aceptan decimales ni agrupaciones incorrectas", raw)
 	}
-	return strconv.ParseInt(digits, 10, 64)
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return invalid()
+	}
+
+	prefixLength := currencyPrefixLength(value)
+	hasCurrency := prefixLength > 0
+	if hasCurrency {
+		value = value[prefixLength:]
+		if strings.HasPrefix(value, " ") {
+			value = value[1:]
+		}
+	}
+
+	suffixLength := currencySuffixLength(value)
+	if suffixLength > 0 {
+		if hasCurrency {
+			return invalid()
+		}
+		hasCurrency = true
+		value = value[:len(value)-suffixLength]
+		if strings.HasSuffix(value, " ") {
+			value = value[:len(value)-1]
+		}
+	}
+	if hasCurrency && (strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ")) {
+		return invalid()
+	}
+
+	digits := value
+	if strings.ContainsAny(value, ".,") {
+		separator := value[strings.IndexAny(value, ".,")]
+		groups := strings.Split(value, string(separator))
+		if len(groups) < 2 || len(groups[0]) < 1 || len(groups[0]) > 3 || !onlyDigits.MatchString(groups[0]) {
+			return invalid()
+		}
+		for _, group := range groups[1:] {
+			if len(group) != 3 || !onlyDigits.MatchString(group) {
+				return invalid()
+			}
+		}
+		digits = strings.Join(groups, "")
+	} else if !onlyDigits.MatchString(digits) {
+		return invalid()
+	}
+
+	amount, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil {
+		if errors.Is(err, strconv.ErrRange) {
+			return 0, fmt.Errorf("el monto %q supera el máximo permitido para guaraníes enteros", raw)
+		}
+		return invalid()
+	}
+	return amount, nil
+}
+
+func currencyPrefixLength(value string) int {
+	if strings.HasPrefix(value, "₲") {
+		return len("₲")
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "gs.") {
+		return len("gs.")
+	}
+	if strings.HasPrefix(lower, "gs") {
+		return len("gs")
+	}
+	return 0
+}
+
+func currencySuffixLength(value string) int {
+	if strings.HasSuffix(value, "₲") {
+		return len("₲")
+	}
+	lower := strings.ToLower(value)
+	if strings.HasSuffix(lower, "gs.") {
+		return len("gs.")
+	}
+	if strings.HasSuffix(lower, "gs") {
+		return len("gs")
+	}
+	return 0
 }

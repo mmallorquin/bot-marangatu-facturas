@@ -61,7 +61,7 @@ type Summary struct {
 	WithIssues         int
 	NotInvoice         int
 	Errors             int
-	Agrees             int // fotos donde RUC, número y total coinciden con la mayoría
+	Agrees             int // corridas que coinciden con la mayoría estricta; acuerdo no demuestra precisión
 	TotalCostUSD       float64
 	AvgSeconds         float64
 	MaxSeconds         float64
@@ -181,9 +181,10 @@ func keyFields(r Run) (string, bool) {
 	return fmt.Sprintf("%s|%s|%d", inv.IssuerRUC, inv.Number, inv.Total), true
 }
 
-// consensus devuelve, por foto, la lectura en la que coincide la mayoría de los modelos.
+// consensus devuelve una clave solo cuando más de la mitad de las lecturas válidas de factura coincide.
 func consensus(runs []Run) map[string]string {
 	votes := map[string]map[string]int{}
+	totals := map[string]int{}
 	for _, r := range runs {
 		key, ok := keyFields(r)
 		if !ok {
@@ -193,6 +194,7 @@ func consensus(runs []Run) map[string]string {
 			votes[r.Photo] = map[string]int{}
 		}
 		votes[r.Photo][key]++
+		totals[r.Photo]++
 	}
 
 	majority := map[string]string{}
@@ -203,7 +205,7 @@ func consensus(runs []Run) map[string]string {
 				best, bestVotes = key, n
 			}
 		}
-		if bestVotes >= minVotesForConsensus {
+		if bestVotes >= minVotesForConsensus && bestVotes*2 > totals[photo] {
 			majority[photo] = best
 		}
 	}

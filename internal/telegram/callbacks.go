@@ -175,6 +175,9 @@ func FormatMonthSummary(period string, sum store.Summary) string {
 		noun = "factura guardada"
 	}
 	fmt.Fprintf(&b, "📊 %s: %d %s\n\n", title, sum.Count, noun)
+	if sum.HasDuplicates {
+		fmt.Fprintf(&b, "⚠️ Los totales incluyen duplicados. Revisá /facturas %s y quitá la copia sobrante antes de exportar.\n\n", period)
+	}
 	if sum.Exempt != 0 {
 		fmt.Fprintf(&b, "Exentas: %s\n", formatGs(sum.Exempt))
 	}

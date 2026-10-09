@@ -180,6 +180,10 @@ func (h *handler) exportMonth(ctx context.Context, b *bot.Bot, chatID int64, tex
 
 func (h *handler) showExportPreview(ctx context.Context, b *bot.Bot, chatID int64, period string, cs store.ChatSettings) {
 	invoices, err := h.deps.Store.SavedInvoices(ctx, chatID, period)
+	if errors.Is(err, store.ErrDuplicateInvoices) {
+		h.send(ctx, b, chatID, duplicateInvoicesMessage(period), nil)
+		return
+	}
 	if err != nil {
 		h.logger.Error("no se pudieron leer las facturas", "chat_id", chatID, "error", err)
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
@@ -340,6 +344,10 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 	}
 
 	prepared, err := h.prepareExport(ctx, press.chatID, callback.period)
+	if errors.Is(err, store.ErrDuplicateInvoices) {
+		h.answer(ctx, b, query.ID, duplicateInvoicesMessage(callback.period), true)
+		return
+	}
 	if err != nil {
 		h.logger.Error("no se pudo reconstruir la exportación", "chat_id", press.chatID, "periodo", callback.period, "error", err)
 		h.answer(ctx, b, query.ID, "La previa ya no está disponible. Usá /exportar de nuevo.", true)
@@ -398,6 +406,10 @@ func (h *handler) handleExportCallback(ctx context.Context, b *bot.Bot, query *m
 		}
 		h.sendConfirmedZIP(ctx, b, press, callback.period, callback.requestID, prepared)
 	}
+}
+
+func duplicateInvoicesMessage(period string) string {
+	return fmt.Sprintf("⚠️ Hay facturas duplicadas. Revisalas con /facturas %s y quitá la copia sobrante antes de exportar. Tus datos siguen guardados.", period)
 }
 
 func (h *handler) sendReviewFile(ctx context.Context, b *bot.Bot, chatID int64, file marangatu.ReviewFile, format string) error {

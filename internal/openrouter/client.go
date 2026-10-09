@@ -224,7 +224,11 @@ func parseResult(body []byte) (reader.Result, error) {
 	}
 
 	var inv invoice.Invoice
-	if err := json.Unmarshal([]byte(stripCodeFence(choice.Message.Content)), &inv); err != nil {
+	content := []byte(stripCodeFence(choice.Message.Content))
+	if err := validateInvoiceJSON(content); err != nil {
+		return reader.Result{}, newReadError(reader.ErrorResponse, nil)
+	}
+	if err := json.Unmarshal(content, &inv); err != nil {
 		return reader.Result{}, newReadError(reader.ErrorResponse, nil)
 	}
 	usage := reader.Usage{
@@ -233,6 +237,102 @@ func parseResult(body []byte) (reader.Result, error) {
 		ReasoningTokens: resp.Usage.CompletionTokensDetails.ReasoningTokens,
 	}
 	return reader.Result{Invoice: inv, Model: resp.Model, CostUSD: resp.Usage.Cost, Usage: usage}, nil
+}
+
+// validateInvoiceJSON enforces the embedded response schema before decoding into
+// the Go struct, whose zero values would otherwise hide omitted or null fields.
+func validateInvoiceJSON(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return errors.New("trailing JSON data")
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(invoiceSchema, &schema); err != nil {
+		return err
+	}
+	return validateJSONSchema(value, schema)
+}
+
+func validateJSONSchema(value any, schema map[string]any) error {
+	typeName, _ := schema["type"].(string)
+	switch typeName {
+	case "object":
+		object, ok := value.(map[string]any)
+		if !ok || object == nil {
+			return errors.New("expected object")
+		}
+		properties, _ := schema["properties"].(map[string]any)
+		for _, rawRequired := range schema["required"].([]any) {
+			name := rawRequired.(string)
+			if _, ok := object[name]; !ok {
+				return errors.New("missing required property")
+			}
+		}
+		for name, raw := range object {
+			rawProperty, exists := properties[name]
+			if !exists {
+				if schema["additionalProperties"] == false {
+					return errors.New("additional property")
+				}
+				continue
+			}
+			propertySchema, ok := rawProperty.(map[string]any)
+			if !ok || validateJSONSchema(raw, propertySchema) != nil {
+				return errors.New("invalid property")
+			}
+		}
+	case "array":
+		items, ok := value.([]any)
+		if !ok {
+			return errors.New("expected array")
+		}
+		itemSchema, ok := schema["items"].(map[string]any)
+		if !ok {
+			return errors.New("invalid array schema")
+		}
+		for _, item := range items {
+			if err := validateJSONSchema(item, itemSchema); err != nil {
+				return err
+			}
+		}
+	case "string":
+		if _, ok := value.(string); !ok {
+			return errors.New("expected string")
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return errors.New("expected boolean")
+		}
+	case "integer":
+		number, ok := value.(json.Number)
+		if !ok {
+			return errors.New("expected integer")
+		}
+		if _, err := number.Int64(); err != nil {
+			return errors.New("expected integer")
+		}
+	default:
+		return errors.New("unsupported schema type")
+	}
+	if allowed, exists := schema["enum"].([]any); exists {
+		matched := false
+		for _, candidate := range allowed {
+			if candidate == value {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return errors.New("value outside enum")
+		}
+	}
+	return nil
 }
 
 func newReadError(kind reader.ErrorKind, cause error) *APIError {
