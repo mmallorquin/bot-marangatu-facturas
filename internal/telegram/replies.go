@@ -38,7 +38,10 @@ const (
 	AlreadySavedNote = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
 	ElectronicNote   = "ℹ️ Es una factura electrónica (tiene CDC): no va en el ZIP. Guardala igual para verla en tu /resumen. " +
 		"Obtenela en Marangatu y revisá su imputación: si no se imputó automáticamente, debés hacerlo allí."
-	DiscardedMessage      = "🗑️ Factura descartada."
+	DiscardedMessage = "🗑️ Factura descartada."
+	CDCClearedNote   = "🧾 Quité el CDC: se tratará como factura física y va a entrar en el ZIP. " +
+		"Si en realidad es electrónica, Marangatu ya la tiene y podría quedar duplicada."
+	RUCAppliedAnswer      = "✅ RUC corregido"
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."
 	NotSavedAnymoreAlert  = "Esa factura ya no está guardada."
@@ -71,6 +74,7 @@ var valueHints = map[string]string{
 	invoice.FieldNumber:    "ej. 001-001-0001234",
 	invoice.FieldDate:      "DD/MM/AAAA",
 	invoice.FieldCondition: "contado o crédito",
+	invoice.FieldCDC:       "44 dígitos, o \"no\" si la factura no es electrónica",
 }
 
 const amountHint = "solo números, ej. 150.000"

@@ -16,7 +16,7 @@ const FieldIssuerName = "razon_social_emisor"
 // EditableFields son los campos que el usuario puede corregir, en el orden en que se muestran.
 var EditableFields = []string{
 	FieldIssuerName, FieldIssuerRUC, FieldTimbrado, FieldNumber, FieldDate, FieldCondition,
-	FieldExempt, FieldTaxed5, FieldTaxed10, FieldVAT5, FieldVAT10, FieldTotal,
+	FieldExempt, FieldTaxed5, FieldTaxed10, FieldVAT5, FieldVAT10, FieldTotal, FieldCDC,
 }
 
 // ErrNotEditable indica que el campo no se puede corregir.
@@ -65,6 +65,8 @@ func Edit(inv Invoice, field, raw string) (Invoice, error) {
 		edited.VAT10, err = parseAmount(raw)
 	case FieldTotal:
 		edited.Total, err = parseAmount(raw)
+	case FieldCDC:
+		edited.CDC, err = parseCDC(raw)
 	default:
 		return inv, fmt.Errorf("%w: %q", ErrNotEditable, field)
 	}
@@ -72,6 +74,21 @@ func Edit(inv Invoice, field, raw string) (Invoice, error) {
 		return inv, err
 	}
 	return edited, nil
+}
+
+// Palabras que, al corregir el CDC, significan que la factura no lo tiene (no es electrónica).
+var noCDCWords = []string{"", "-", "no", "ninguno", "no tiene", "quitar"}
+
+// parseCDC acepta los 44 dígitos (con o sin espacios) o una palabra que indique que no hay CDC.
+func parseCDC(raw string) (string, error) {
+	if slices.Contains(noCDCWords, strings.ToLower(raw)) {
+		return "", nil
+	}
+	cdc := whitespaceNoise.Replace(raw)
+	if !onlyDigits.MatchString(cdc) || len(cdc) != 44 {
+		return "", fmt.Errorf("el CDC %q no es válido: tienen que ser 44 dígitos, o escribí \"no\" si la factura no es electrónica", raw)
+	}
+	return cdc, nil
 }
 
 func parseName(raw string) (string, error) {

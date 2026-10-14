@@ -3,6 +3,7 @@ package invoice
 import (
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -59,7 +60,6 @@ func TestValidateDetectsEachInconsistentField(t *testing.T) {
 		{"total que no suma", func(inv Invoice) Invoice { inv.Total = 180_000; return inv }, FieldTotal},
 		{"IVA 10 % incorrecto", func(inv Invoice) Invoice { inv.VAT10 = 15_000; return inv }, FieldVAT10},
 		{"IVA 5 % incorrecto", func(inv Invoice) Invoice { inv.VAT5 = 2_100; return inv }, FieldVAT5},
-		{"CDC con largo incorrecto", func(inv Invoice) Invoice { inv.CDC = "0123"; return inv }, FieldCDC},
 	}
 
 	for _, tc := range cases {
@@ -115,5 +115,42 @@ func TestValidateDoesNotMutateInput(t *testing.T) {
 
 	if !reflect.DeepEqual(inv, before) {
 		t.Errorf("Validate modificó la factura de entrada")
+	}
+}
+
+func TestCDCWithWrongLengthIsAWarningNotABlock(t *testing.T) {
+	inv := validInvoice()
+	inv.CDC = "0123"
+
+	if issues := Validate(inv); len(issues) != 0 {
+		t.Errorf("un CDC mal leído no bloquea: %+v", issues)
+	}
+	warnings := Warnings(inv)
+	if len(warnings) != 1 || warnings[0].Field != FieldCDC {
+		t.Errorf("debería avisar del CDC: %+v", warnings)
+	}
+	if Clean(inv) {
+		t.Error("con avisos no se guarda sola")
+	}
+}
+
+func TestSuggestRUC(t *testing.T) {
+	cases := map[string]struct {
+		ruc  string
+		want string
+		ok   bool
+	}{
+		"dígito mal":       {"80024627-1", "80024627-6", true},
+		"dígito bien":      {"80024627-6", "", false},
+		"base con letra":   {"1234567A-0", "1234567A-" + strconv.Itoa(CheckDigit("1234567A")), true},
+		"sin formato":      {"80024627", "", false},
+		"con espacios":     {" 80024627-1 ", "80024627-6", true},
+		"dígito ya cierra": {"80000519-8", "", false},
+	}
+	for name, tc := range cases {
+		got, ok := SuggestRUC(tc.ruc)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("%s: SuggestRUC(%q) = %q, %v; se esperaba %q, %v", name, tc.ruc, got, ok, tc.want, tc.ok)
+		}
 	}
 }

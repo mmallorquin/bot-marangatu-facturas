@@ -99,16 +99,54 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.editKeyboard(ctx, b, press, fieldsKeyboard(c.id))
 		h.answer(ctx, b, press.queryID, "", false)
 	case actionBack:
-		h.editKeyboard(ctx, b, press, mainKeyboard(c.id))
+		h.editKeyboard(ctx, b, press, reviewKeyboard(c.id, rec.Invoice))
 		h.answer(ctx, b, press.queryID, "", false)
+	case actionUseRUC:
+		h.applyShortcut(ctx, b, press, rec, invoice.FieldIssuerRUC, RUCAppliedAnswer, "")
+	case actionNoCDC:
+		h.applyShortcut(ctx, b, press, rec, invoice.FieldCDC, "", CDCClearedNote)
 	case actionField:
 		h.askForValue(ctx, b, press)
 	}
 }
 
+// applyShortcut aplica una corrección de un toque (RUC sugerido o quitar el CDC) y vuelve a mostrar la factura.
+// El valor se recalcula acá, a partir del borrador actual: el botón no lleva datos de la factura.
+func (h *handler) applyShortcut(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record, field, answer, note string) {
+	value := ""
+	if field == invoice.FieldIssuerRUC {
+		suggested, ok := invoice.SuggestRUC(rec.Invoice.IssuerRUC)
+		if !ok {
+			h.answer(ctx, b, press.queryID, "El RUC ya está bien.", false)
+			h.editKeyboard(ctx, b, press, reviewKeyboard(rec.ID, rec.Invoice))
+			return
+		}
+		value = suggested
+	}
+	edited, err := invoice.Edit(rec.Invoice, field, value)
+	if err == nil {
+		err = h.deps.Store.UpdateInvoice(ctx, press.chatID, rec.ID, edited)
+	}
+	if err != nil {
+		h.logger.Error("no se pudo aplicar el atajo", "chat_id", press.chatID, "campo", field, "error", err)
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	h.track(ctx, press.chatID, store.Event{Kind: store.EventCorrection, Detail: field})
+	text, _ := h.invoiceMessage(ctx, press.chatID, edited, invoice.Validate(edited))
+	if note != "" {
+		text += "\n\n" + note
+	}
+	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited))
+	h.answer(ctx, b, press.queryID, answer, false)
+}
+
 func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	if issues := invoice.Validate(rec.Invoice); len(issues) > 0 {
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaveBlocked})
+		for _, issue := range issues {
+			h.track(ctx, press.chatID, store.Event{Kind: store.EventBlockedField, Detail: issue.Field})
+		}
 		h.answer(ctx, b, press.queryID, FixBeforeSavingAlert, true)
 		return
 	}
@@ -150,7 +188,7 @@ func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPres
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, mainKeyboard(rec.ID))
+	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, reviewKeyboard(rec.ID, rec.Invoice))
 	h.answer(ctx, b, press.queryID, "", false)
 }
 

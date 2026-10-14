@@ -167,3 +167,22 @@ func TestEditableFieldsCanAllBeEdited(t *testing.T) {
 		}
 	}
 }
+
+func TestEditCDCAcceptsDigitsOrClearsIt(t *testing.T) {
+	inv := validInvoice()
+	inv.CDC = "0123"
+	inv.UncertainFields = []string{FieldCDC}
+	full := "01800005198001001000123412026092012345678901"
+
+	fixed, err := Edit(inv, FieldCDC, "0180 0005 1980 0100 1000 1234 1202 6092 0123 4567 8901")
+	if err != nil || fixed.CDC != full || len(fixed.UncertainFields) != 0 {
+		t.Errorf("CDC con espacios: %+v, %v", fixed.CDC, err)
+	}
+	cleared, err := Edit(inv, FieldCDC, "no")
+	if err != nil || cleared.CDC != "" {
+		t.Errorf("\"no\" debería quitar el CDC: %q, %v", cleared.CDC, err)
+	}
+	if _, err := Edit(inv, FieldCDC, "0123"); err == nil {
+		t.Error("43 dígitos o menos se rechazan")
+	}
+}

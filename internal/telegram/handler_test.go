@@ -36,6 +36,8 @@ type outgoing struct {
 
 	fileName string // solo sendDocument
 	fileData []byte
+
+	replyTo string // reply_parameters en JSON, si el mensaje cita a otro
 }
 
 // fakeTelegram simula la API de Telegram: mensajes, ediciones, botones, getFile y descarga.
@@ -83,7 +85,9 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f.requests = append(f.requests, outgoing{method: method, text: r.FormValue("text"), markup: r.FormValue("reply_markup")})
+	f.requests = append(f.requests, outgoing{
+		method: method, text: r.FormValue("text"), markup: r.FormValue("reply_markup"), replyTo: r.FormValue("reply_parameters"),
+	})
 	_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":10,"chat":{"id":42}}}`)
 }
 
@@ -171,6 +175,7 @@ func (h *harness) sendPhoto() {
 
 func photoUpdate() *models.Update {
 	return &models.Update{Message: &models.Message{
+		ID:   77,
 		Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Photo: []models.PhotoSize{
 			{FileID: "chica", Width: 90, Height: 120},

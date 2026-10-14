@@ -53,9 +53,21 @@ type Issue struct {
 	Message string
 }
 
-// Clean indica que la factura se puede guardar tal cual: sin problemas de validación ni campos dudosos.
+// Clean indica que la factura se puede guardar sin mirarla: sin problemas de validación,
+// sin avisos y sin campos dudosos.
 func Clean(inv Invoice) bool {
-	return inv.IsInvoice && len(Validate(inv)) == 0 && len(inv.UncertainFields) == 0
+	return inv.IsInvoice && len(Validate(inv)) == 0 && len(Warnings(inv)) == 0 && len(inv.UncertainFields) == 0
+}
+
+// Warnings son datos que conviene revisar pero que no impiden guardar. El CDC no entra en el
+// archivo de Marangatu (las electrónicas se dejan afuera), así que un CDC mal leído no puede
+// romper la exportación; bloquear por eso solo dejaba al usuario sin salida.
+func Warnings(inv Invoice) []Issue {
+	var warnings []Issue
+	if inv.CDC != "" && !cdcPattern.MatchString(inv.CDC) {
+		warnings = append(warnings, Issue{FieldCDC, "el CDC debería tener 44 dígitos; corregilo o quitalo si la factura no es electrónica"})
+	}
+	return warnings
 }
 
 // Validate revisa que la factura sea coherente. No modifica la factura recibida.
@@ -90,9 +102,6 @@ func validateIdentity(inv Invoice) []Issue {
 	}
 	if inv.Currency != CurrencyPYG {
 		issues = append(issues, Issue{FieldCurrency, "por ahora solo se soportan facturas en guaraníes"})
-	}
-	if inv.CDC != "" && !cdcPattern.MatchString(inv.CDC) {
-		issues = append(issues, Issue{FieldCDC, "el CDC debe tener 44 dígitos"})
 	}
 	return issues
 }

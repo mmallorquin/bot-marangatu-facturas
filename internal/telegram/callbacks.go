@@ -22,6 +22,8 @@ const (
 	actionField   = "f" // corregir un campo
 	actionBack    = "v" // volver a los botones principales
 	actionUndo    = "u" // deshacer un guardado automático
+	actionUseRUC  = "r" // aplicar el RUC con el dígito verificador calculado
+	actionNoCDC   = "q" // quitar el CDC: la factura no es electrónica
 )
 
 const fieldsPerRow = 2
@@ -57,7 +59,7 @@ func parseCallback(data string) (callback, error) {
 	case c.action == actionField && len(parts) == 3 && slices.Contains(invoice.EditableFields, parts[2]):
 		c.field = parts[2]
 		return c, nil
-	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo}, c.action):
+	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC}, c.action):
 		return c, nil
 	default:
 		return callback{}, errInvalidCallback
@@ -75,6 +77,25 @@ func mainKeyboard(id int64) *models.InlineKeyboardMarkup {
 		button("✏️ Corregir", callback{action: actionEdit, id: id}),
 		button("🗑️ Descartar", callback{action: actionDiscard, id: id}),
 	}}}
+}
+
+// reviewKeyboard son los botones de siempre más los atajos que aplican a esta factura:
+// usar el RUC con el dígito calculado y quitar un CDC que no se leyó bien.
+func reviewKeyboard(id int64, inv invoice.Invoice) *models.InlineKeyboardMarkup {
+	keyboard := mainKeyboard(id)
+	if suggested, ok := invoice.SuggestRUC(inv.IssuerRUC); ok {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
+			button("✔️ Usar RUC "+suggested, callback{action: actionUseRUC, id: id}),
+		})
+	}
+	for _, w := range invoice.Warnings(inv) {
+		if w.Field == invoice.FieldCDC {
+			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
+				button("🧾 No tiene CDC (no es electrónica)", callback{action: actionNoCDC, id: id}),
+			})
+		}
+	}
+	return keyboard
 }
 
 // undoKeyboard acompaña a una factura guardada automáticamente.

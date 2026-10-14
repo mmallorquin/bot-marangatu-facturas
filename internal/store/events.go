@@ -22,6 +22,8 @@ const (
 	EventSaved           = "guardada"       // detalle: corregida | sin_corregir
 	EventDuplicate       = "duplicada"      // quiso guardar una factura que ya tenía
 	EventSaveBlocked     = "guardar_bloqueado"
+	EventReadIssue       = "lectura_problema" // un campo con problema o aviso al leer; detalle: campo
+	EventBlockedField    = "campo_bloqueante" // un campo que impidió guardar; detalle: campo
 	EventDiscarded       = "descartada"
 	EventUndo            = "deshecha" // tocó Deshacer en una factura guardada automáticamente
 	EventAutoSave        = "autoguardar"
@@ -126,7 +128,10 @@ type Metrics struct {
 	Deleted    int // guardadas que después se borraron con /facturas
 	Duplicates int
 	Blocked    int // intentos de guardar con datos que no cierran
-	Abandoned  int // borradores del período sin guardar ni descartar después de 24 h
+	// Campos con problemas al leer y campos que bloquearon un guardado, de más a menos frecuente.
+	ReadIssueFields []FieldCount
+	BlockedFields   []FieldCount
+	Abandoned       int // borradores del período sin guardar ni descartar después de 24 h
 
 	// Correcciones
 	Corrections    []FieldCount // de más a menos corregido
@@ -265,12 +270,14 @@ func (s *Store) countEvents(ctx context.Context, sc scope, from string, m *Metri
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("contando eventos: %w", err)
 	}
-	slices.SortFunc(m.Corrections, func(a, b FieldCount) int {
-		if a.Count != b.Count {
-			return b.Count - a.Count
-		}
-		return strings.Compare(a.Field, b.Field)
-	})
+	for _, counts := range []*[]FieldCount{&m.Corrections, &m.ReadIssueFields, &m.BlockedFields} {
+		slices.SortFunc(*counts, func(a, b FieldCount) int {
+			if a.Count != b.Count {
+				return b.Count - a.Count
+			}
+			return strings.Compare(a.Field, b.Field)
+		})
+	}
 	return nil
 }
 
@@ -308,6 +315,10 @@ func addEvent(m *Metrics, kind, detail string, count int) {
 		m.Duplicates += count
 	case EventSaveBlocked:
 		m.Blocked += count
+	case EventReadIssue:
+		m.ReadIssueFields = append(m.ReadIssueFields, FieldCount{Field: detail, Count: count})
+	case EventBlockedField:
+		m.BlockedFields = append(m.BlockedFields, FieldCount{Field: detail, Count: count})
 	case EventCorrection:
 		m.Corrections = append(m.Corrections, FieldCount{Field: detail, Count: count})
 	case EventBadCorrection:
