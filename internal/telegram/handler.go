@@ -174,8 +174,8 @@ func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *model
 }
 
 // sourceOf es la referencia a la foto que se guarda con el borrador.
-func sourceOf(file imageFile, messageID int) store.Source {
-	return store.Source{FileID: file.fileID, MimeType: file.mimeType, MessageID: messageID}
+func sourceOf(file imageFile, messageID, rotation int) store.Source {
+	return store.Source{FileID: file.fileID, MimeType: file.mimeType, MessageID: messageID, Rotation: rotation}
 }
 
 func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text string) {
@@ -281,7 +281,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		return
 	}
 	h.finishRead(ctx, func(ctx context.Context) {
-		h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds(), sourceOf(file, photoMessageID))
+		h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds(), sourceOf(file, photoMessageID, result.Rotation))
 	})
 }
 

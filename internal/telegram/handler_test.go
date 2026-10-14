@@ -45,6 +45,7 @@ type fakeTelegram struct {
 	mu              sync.Mutex
 	requests        []outgoing
 	requestedFileID string
+	fileBytes       []byte // qué devuelve la descarga; nil = fakeImageData
 	failGetFile     bool
 }
 
@@ -56,6 +57,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/file/bot"):
+		if f.fileBytes != nil {
+			_, _ = w.Write(f.fileBytes)
+			return
+		}
 		_, _ = io.WriteString(w, fakeImageData)
 		return
 	case method == "getFile":
@@ -68,10 +73,20 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_id":"x","file_path":"photos/factura.jpg"}}`)
 		return
 	case method == "sendPhoto":
-		f.requests = append(f.requests, outgoing{
+		sent := outgoing{
 			method: method, text: r.FormValue("caption"), fileName: r.FormValue("photo"), replyTo: r.FormValue("reply_parameters"),
 			markup: r.FormValue("reply_markup"),
-		})
+		}
+		if r.MultipartForm != nil {
+			if files := r.MultipartForm.File["photo"]; len(files) == 1 {
+				sent.fileName = files[0].Filename
+				if file, err := files[0].Open(); err == nil {
+					sent.fileData, _ = io.ReadAll(file)
+					_ = file.Close()
+				}
+			}
+		}
+		f.requests = append(f.requests, sent)
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":12,"chat":{"id":42}}}`)
 		return
 	case method == "sendDocument":

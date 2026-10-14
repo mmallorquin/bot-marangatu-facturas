@@ -135,6 +135,7 @@ type Source struct {
 	FileID    string
 	MimeType  string
 	MessageID int // mensaje del chat que trae la foto, para citarlo
+	Rotation  int // grados en sentido horario para que la foto quede derecha, según el modelo
 }
 
 // Record es una factura guardada en la base.
@@ -216,6 +217,7 @@ var addedColumns = []struct{ table, column, definition string }{
 	{"invoices", "source_message_id", "INTEGER NOT NULL DEFAULT 0"},
 	{"invoices", "rereads", "INTEGER NOT NULL DEFAULT 0"},   // relecturas pedidas por el usuario
 	{"invoices", "reread_json", "TEXT NOT NULL DEFAULT ''"}, // última relectura, para adoptar sus campos
+	{"invoices", "source_rotation", "INTEGER NOT NULL DEFAULT 0"},
 	// Guardado automático: '' = el valor por defecto (activado), 'si' o 'no' si el usuario lo eligió.
 	{"chat_settings", "auto_save_mode", "TEXT NOT NULL DEFAULT '' CHECK (auto_save_mode IN ('', 'si', 'no'))"},
 }
@@ -350,10 +352,10 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 	now := timestamp()
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at,
-			source_file_id, source_mime, source_message_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			source_file_id, source_mime, source_message_id, source_rotation)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		chatID, StatusDraft, data, original, d.Model, d.CostUSD, now, now,
-		d.Source.FileID, d.Source.MimeType, d.Source.MessageID)
+		d.Source.FileID, d.Source.MimeType, d.Source.MessageID, d.Source.Rotation)
 	if err != nil {
 		return 0, fmt.Errorf("guardando el borrador: %w", err)
 	}
@@ -368,10 +370,10 @@ func (s *Store) Get(ctx context.Context, chatID, id int64) (Record, error) {
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, chat_id, status, invoice_json, original_json, model, cost_usd, corrected,
-			source_file_id, source_mime, source_message_id, rereads, reread_json
+			source_file_id, source_mime, source_message_id, source_rotation, rereads, reread_json
 		FROM invoices WHERE id = ? AND chat_id = ?`, id, chatID).
 		Scan(&rec.ID, &rec.ChatID, &rec.Status, &invoiceJSON, &originJSON, &rec.Model, &rec.CostUSD, &rec.Corrected,
-			&rec.Source.FileID, &rec.Source.MimeType, &rec.Source.MessageID, &rec.Rereads, &rereadJSON)
+			&rec.Source.FileID, &rec.Source.MimeType, &rec.Source.MessageID, &rec.Source.Rotation, &rec.Rereads, &rereadJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, ErrNotFound
 	}

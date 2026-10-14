@@ -19,7 +19,7 @@ import (
 const invoiceJSON = `{"es_comprobante":true,"tipo":"factura","ruc_emisor":"80000519-8",` +
 	`"razon_social_emisor":"Comercial Ejemplo S.A.","timbrado":"12345678","numero":"001-001-0001234",` +
 	`"fecha":"2026-09-20","condicion":"contado","moneda":"PYG","exentas":0,"gravada_5":0,` +
-	`"gravada_10":150000,"iva_5":0,"iva_10":13636,"total":150000,"cdc":"","campos_dudosos":[]}`
+	`"gravada_10":150000,"iva_5":0,"iva_10":13636,"total":150000,"cdc":"","campos_dudosos":[],"orientacion":0}`
 
 // fakeChatResponse arma una respuesta de OpenRouter con el contenido dado.
 func fakeChatResponse(content, finishReason string) string {
@@ -361,7 +361,7 @@ func TestParseResultEnforcesEmbeddedSchemaContract(t *testing.T) {
 func TestParseResultPreservesCompleteNonInvoiceResponse(t *testing.T) {
 	content := `{"es_comprobante":false,"tipo":"otro","ruc_emisor":"","razon_social_emisor":"",` +
 		`"timbrado":"","numero":"","fecha":"","condicion":"contado","moneda":"",` +
-		`"exentas":0,"gravada_5":0,"gravada_10":0,"iva_5":0,"iva_10":0,"total":0,"cdc":"","campos_dudosos":[]}`
+		`"exentas":0,"gravada_5":0,"gravada_10":0,"iva_5":0,"iva_10":0,"total":0,"cdc":"","campos_dudosos":[],"orientacion":0}`
 	result, err := parseResult([]byte(fakeChatResponse(content, "stop")))
 	if err != nil {
 		t.Fatalf("complete non-invoice should remain a usable response: %v", err)
@@ -443,8 +443,11 @@ func TestReadFailsOnUnusableResponses(t *testing.T) {
 	}
 }
 
+// Campos del esquema que describen la imagen, no la factura: viven en reader.Result.
+var imageOnlyFields = []string{"orientacion"}
+
 func TestSchemaListsEveryInvoiceField(t *testing.T) {
-	// El esquema que ve el modelo debe tener exactamente los campos de invoice.Invoice.
+	// El esquema que ve el modelo debe tener exactamente los campos de invoice.Invoice más los de la imagen.
 	var schema struct {
 		Properties map[string]any `json:"properties"`
 		Required   []string       `json:"required"`
@@ -462,9 +465,31 @@ func TestSchemaListsEveryInvoiceField(t *testing.T) {
 			t.Errorf("falta %q en schema.json", field)
 		}
 	}
-	if len(schema.Properties) != len(asMap) || len(schema.Required) != len(asMap) {
-		t.Errorf("schema tiene %d propiedades y %d requeridas; Invoice tiene %d campos",
-			len(schema.Properties), len(schema.Required), len(asMap))
+	for _, field := range imageOnlyFields {
+		if _, ok := schema.Properties[field]; !ok {
+			t.Errorf("falta %q en schema.json", field)
+		}
+	}
+	want := len(asMap) + len(imageOnlyFields)
+	if len(schema.Properties) != want || len(schema.Required) != want {
+		t.Errorf("schema tiene %d propiedades y %d requeridas; Invoice más la imagen suman %d campos",
+			len(schema.Properties), len(schema.Required), want)
+	}
+}
+
+func TestReadParsesTheRotationAndIgnoresInvalidValues(t *testing.T) {
+	for raw, want := range map[string]int{"90": 90, "270": 270, "0": 0, "45": 0, "-90": 0} {
+		content := strings.Replace(invoiceJSON, `"orientacion":0`, `"orientacion":`+raw, 1)
+		result, err := parseResult([]byte(fakeChatResponse(content, "stop")))
+		if raw == "45" || raw == "-90" {
+			if err == nil {
+				t.Errorf("orientacion %s fuera del enum debería rechazarse", raw)
+			}
+			continue
+		}
+		if err != nil || result.Rotation != want {
+			t.Errorf("orientacion %s: rotación %d, error %v", raw, result.Rotation, err)
+		}
 	}
 }
 

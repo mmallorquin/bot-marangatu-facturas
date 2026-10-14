@@ -4,7 +4,7 @@
   "required": [
     "es_comprobante", "tipo", "ruc_emisor", "razon_social_emisor", "timbrado", "numero",
     "fecha", "condicion", "moneda", "exentas", "gravada_5", "gravada_10", "iva_5", "iva_10",
-    "total", "cdc", "campos_dudosos"
+    "total", "cdc", "campos_dudosos", "orientacion"
   ],
   "properties": {
     "es_comprobante": { "type": "boolean", "description": "true si la imagen es un comprobante fiscal paraguayo" },
@@ -23,6 +23,7 @@
     "iva_10": { "type": "integer", "description": "Liquidación IVA 10 %" },
     "total": { "type": "integer", "description": "Total a pagar" },
     "cdc": { "type": "string", "description": "CDC de 44 dígitos si es factura electrónica, si no vacío" },
-    "campos_dudosos": { "type": "array", "items": { "type": "string" }, "description": "Campos que no se leen con claridad" }
+    "campos_dudosos": { "type": "array", "items": { "type": "string" }, "description": "Campos que no se leen con claridad" },
+    "orientacion": { "type": "integer", "enum": [0, 90, 180, 270], "description": "Grados que hay que girar la imagen en sentido horario para que el texto quede derecho; 0 si ya está derecho" }
   }
 }

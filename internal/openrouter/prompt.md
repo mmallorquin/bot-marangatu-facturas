@@ -15,3 +15,4 @@ Devolvé solo los datos que ves en la imagen, con estas reglas:
   - **total**: el total a pagar.
 - **cdc**: si es una factura electrónica (KuDE), el CDC de 44 dígitos sin espacios. Suele estar impreso en grupos de 4 debajo o al lado del código QR. Copialo completo y en orden; si no se lee entero, dejalo vacío y agregá `cdc` a campos_dudosos. Si no es electrónica, vacío.
 - **campos_dudosos**: los nombres de los campos que no se leen bien (borrosos, cortados, manuscritos poco claros). No inventes datos: si no podés leer un campo, dejalo vacío o en 0 y agregalo acá.
+- **orientacion**: cuántos grados hay que girar la imagen en sentido horario para que el texto se lea derecho: `0` si ya está derecho, `90` si el texto está acostado hacia la izquierda, `180` si está al revés, `270` si está acostado hacia la derecha.
