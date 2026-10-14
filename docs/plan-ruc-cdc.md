@@ -1,6 +1,14 @@
 # Plan: RUC y CDC mal leídos, y volver a ver o releer la foto
 
-Estado: **propuesta, sin implementar**. Fecha: 14 de octubre de 2026, sobre `main` en `0339f7f`.
+Estado: **implementado** (14 de octubre de 2026). Lo que sigue abajo es el plan original; esto es lo que quedó:
+
+- **Paso 1:** el CDC es un aviso corregible (botón "No tiene CDC"); botón "Usar RUC X-N" cuando solo falla el DV; la lectura cita la foto; `metricas` muestra "Campos con problemas al leer" y "Campos que bloquearon guardar".
+- **Paso 2:** `ParseCDC` con DV (módulo 11, como aviso); cruce del CDC con RUC, número y fecha; el bot corrige solo el DV del RUC cuando el CDC lo confirma; prompt ajustado.
+- **Paso 3:** el borrador guarda `file_id`, tipo y mensaje de la foto (no la imagen); botones "Ver foto" y "Releer" (tope 2, segunda pasada enfocada con razonamiento medio, adopción por campo).
+- **Pendiente:** confirmar el algoritmo del DV del CDC con el Manual Técnico oficial de SIFEN (hoy solo avisa); medir en producción cuánto reducen los bloqueos; los candidatos por una sustitución de dígito (a') quedaron fuera.
+
+---
+
 
 ## Diagnóstico
 
