@@ -63,9 +63,26 @@ func Clean(inv Invoice) bool {
 // archivo de Marangatu (las electrónicas se dejan afuera), así que un CDC mal leído no puede
 // romper la exportación; bloquear por eso solo dejaba al usuario sin salida.
 func Warnings(inv Invoice) []Issue {
+	if inv.CDC == "" {
+		return nil
+	}
+	cdc, err := ParseCDC(inv.CDC)
+	if err != nil {
+		return []Issue{{FieldCDC, "el CDC debería tener 44 dígitos; corregilo o quitalo si la factura no es electrónica"}}
+	}
 	var warnings []Issue
-	if inv.CDC != "" && !cdcPattern.MatchString(inv.CDC) {
-		warnings = append(warnings, Issue{FieldCDC, "el CDC debería tener 44 dígitos; corregilo o quitalo si la factura no es electrónica"})
+	if !cdc.CheckDigitOK() {
+		warnings = append(warnings, Issue{FieldCDC, "el dígito verificador del CDC no cierra: revisá que esté bien copiado"})
+	}
+	// El CDC trae el RUC, el número y la fecha: si no coinciden con la lectura, alguno de los dos está mal.
+	if ruc := strings.ToUpper(strings.TrimSpace(inv.IssuerRUC)); ruc != "" && ruc != cdc.RUC() {
+		warnings = append(warnings, Issue{FieldIssuerRUC, fmt.Sprintf("según el CDC el RUC es %s, pero la lectura dice %s", cdc.RUC(), inv.IssuerRUC)})
+	}
+	if number := NormalizeNumber(inv.Number); number != "" && number != cdc.Number() {
+		warnings = append(warnings, Issue{FieldNumber, fmt.Sprintf("según el CDC el número es %s, pero la lectura dice %s", cdc.Number(), inv.Number)})
+	}
+	if inv.Date != "" && inv.Date != cdc.Date {
+		warnings = append(warnings, Issue{FieldDate, fmt.Sprintf("según el CDC la fecha es %s, pero la lectura dice %s", cdc.Date, inv.Date)})
 	}
 	return warnings
 }

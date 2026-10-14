@@ -86,7 +86,7 @@ func TestBadCDCWarnsButDoesNotBlockAndCanBeRemovedOrTyped(t *testing.T) {
 	fields := h.telegram.byMethod("editMessageReplyMarkup")
 	h.press(callback{action: actionField, id: 1, field: invoice.FieldCDC})
 	asked := h.telegram.lastSent(t).text
-	h.sendText("0180 0005 1980 0100 1000 1234 1202 6092 0123 4567 8901")
+	h.sendText(spaced(validCDC()))
 	typed := h.telegram.lastSent(t).text
 
 	// Assert
@@ -112,5 +112,61 @@ func TestBadCDCStillAllowsSaving(t *testing.T) {
 
 	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved {
 		t.Errorf("un CDC mal leído no bloquea el guardado: %s", rec.Status)
+	}
+}
+
+// validCDC es un CDC coherente con sampleInvoice (RUC 80000519-8, 001-001-0001234, 20/09/2026).
+func validCDC() string {
+	body := "01" + "80000519" + "8" + "001" + "001" + "0001234" + "2" + "20260920" + "1" + "123456789"
+	return body + string(rune('0'+invoice.CheckDigit(body)))
+}
+
+// spaced imita cómo se copia el CDC del KuDE: en grupos de cuatro.
+func spaced(cdc string) string {
+	var groups []string
+	for i := 0; i < len(cdc); i += 4 {
+		groups = append(groups, cdc[i:min(i+4, len(cdc))])
+	}
+	return strings.Join(groups, " ")
+}
+
+func TestCDCConfirmsTheRUCCheckDigitAutomatically(t *testing.T) {
+	// Arrange: DV del RUC mal leído, pero el CDC trae el RUC correcto.
+	h := newHarness(t)
+	inv := sampleInvoice()
+	inv.IssuerRUC = "80000519-1"
+	inv.CDC = validCDC()
+	h.reader.result.Invoice = inv
+
+	// Act
+	h.sendPhoto()
+	read := h.telegram.lastSent(t)
+
+	// Assert: corregido solo, con aviso, sin botón de RUC, y el original conserva lo leído.
+	if !strings.Contains(read.text, "RUC: 80000519-8") || !strings.Contains(read.text, RUCFromCDCNote) || strings.Contains(read.markup, `"r:1"`) {
+		t.Errorf("debería corregir el RUC con el CDC: %+v", read)
+	}
+	rec, _ := h.store.Get(context.Background(), testChatID, 1)
+	if rec.Invoice.IssuerRUC != "80000519-8" || rec.Original.IssuerRUC != "80000519-1" {
+		t.Errorf("registro = %q, original = %q", rec.Invoice.IssuerRUC, rec.Original.IssuerRUC)
+	}
+}
+
+func TestCDCThatDisagreesWithTheReadingOnlyWarns(t *testing.T) {
+	h := newHarness(t)
+	inv := sampleInvoice()
+	inv.Number = "001-001-0009999" // el CDC dice 0001234
+	inv.CDC = validCDC()
+	h.reader.result.Invoice = inv
+
+	h.sendPhoto()
+	read := h.telegram.lastSent(t)
+	h.press(callback{action: actionSave, id: 1})
+
+	if !strings.Contains(read.text, "según el CDC el número es 001-001-0001234") {
+		t.Errorf("debería avisar la diferencia:\n%s", read.text)
+	}
+	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved {
+		t.Errorf("el cruce avisa pero no bloquea: %s", rec.Status)
 	}
 }

@@ -122,9 +122,10 @@ CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
 
 // Draft es una factura recién leída.
 type Draft struct {
-	Invoice invoice.Invoice
-	Model   string
-	CostUSD float64
+	Invoice  invoice.Invoice
+	Original *invoice.Invoice // lo que leyó la IA, si Invoice ya tiene correcciones automáticas
+	Model    string
+	CostUSD  float64
 }
 
 // Record es una factura guardada en la base.
@@ -306,7 +307,11 @@ func (s *Store) Close() error {
 
 // CreateDraft guarda una factura recién leída y devuelve su ID.
 func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, error) {
-	original, err := json.Marshal(d.Invoice)
+	read := d.Invoice
+	if d.Original != nil {
+		read = *d.Original
+	}
+	original, err := json.Marshal(read)
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura: %w", err)
 	}

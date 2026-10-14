@@ -292,6 +292,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 	inv := result.Invoice
 	// Se conserva el resultado del lector intacto para guardarlo como original.
 	inv.Number = invoice.NormalizeNumber(inv.Number)
+	inv, rucFromCDC := invoice.ReconcileRUCWithCDC(inv)
 	issues := invoice.Validate(inv)
 	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
 	for _, field := range problemFields(inv, issues) {
@@ -313,13 +314,18 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 		return
 	}
 
-	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: result.Invoice, Model: result.Model, CostUSD: result.CostUSD})
+	read := result.Invoice
+	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: inv, Original: &read, Model: result.Model, CostUSD: result.CostUSD})
 	if err != nil {
 		h.logger.Error("no se pudo crear el borrador", "chat_id", chatID, "error", err)
 		h.sendReply(ctx, b, chatID, photoMessageID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	if rucFromCDC {
+		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
+		text += "\n\n" + RUCFromCDCNote
+	}
 	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})

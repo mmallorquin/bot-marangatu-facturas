@@ -42,6 +42,7 @@ const (
 	CDCClearedNote   = "🧾 Quité el CDC: se tratará como factura física y va a entrar en el ZIP. " +
 		"Si en realidad es electrónica, Marangatu ya la tiene y podría quedar duplicada."
 	RUCAppliedAnswer      = "✅ RUC corregido"
+	RUCFromCDCNote        = "🔎 Corregí el dígito verificador del RUC con el que figura en el CDC de la factura."
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."
 	NotSavedAnymoreAlert  = "Esa factura ya no está guardada."
