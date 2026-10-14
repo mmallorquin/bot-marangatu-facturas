@@ -17,6 +17,9 @@ func TestDeleteMyDataAsksFirstAndOnlyDeletesThisChat(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendPhoto() // un borrador
 	h.sendText("/ruc 80024627-6")
+	if err := h.store.SetAutoSave(context.Background(), 999, false); err != nil {
+		t.Fatal(err)
+	}
 	h.send(&models.Update{Message: &models.Message{Chat: models.Chat{ID: 999, Type: models.ChatTypePrivate}, Photo: photoUpdate().Message.Photo}})
 
 	// Act: pedir, cancelar, pedir y confirmar.

@@ -62,7 +62,7 @@ func parseCallback(data string) (callback, error) {
 	case c.action == actionField && len(parts) == 3 && slices.Contains(invoice.EditableFields, parts[2]):
 		c.field = parts[2]
 		return c, nil
-	case c.action == actionAdopt && len(parts) == 3 && (parts[2] == rereadAllFields || slices.Contains(identityFields, parts[2])):
+	case c.action == actionAdopt && len(parts) == 3 && (parts[2] == rereadAllFields || slices.Contains(invoice.EditableFields, parts[2])):
 		c.field = parts[2]
 		return c, nil
 	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC, actionPhoto, actionReread}, c.action):
@@ -113,6 +113,15 @@ func undoKeyboard(id int64) *models.InlineKeyboardMarkup {
 	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
 		button("↩️ Deshacer", callback{action: actionUndo, id: id}),
 	}}}
+}
+
+// autoSavedKeyboard acompaña a una factura guardada sola: deshacer y, si hay foto, verla o releerla.
+func autoSavedKeyboard(id int64, hasSource bool) *models.InlineKeyboardMarkup {
+	keyboard := undoKeyboard(id)
+	if hasSource {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, sourceKeyboardRow(id))
+	}
+	return keyboard
 }
 
 // discardOnlyKeyboard se muestra cuando la factura ya estaba guardada.

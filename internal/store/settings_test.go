@@ -27,15 +27,15 @@ func TestSettingsStartEmptyAndArePerChat(t *testing.T) {
 	}
 
 	// Assert
-	if empty != (ChatSettings{Reminders: true}) {
+	if empty != (ChatSettings{Reminders: true, AutoSave: true}) {
 		t.Errorf("configuración inicial = %+v, se esperaba la de por defecto", empty)
 	}
 	got, _ := s.Settings(ctx, chatA)
-	want := ChatSettings{RUC: "80024627-6", Imputations: Imputations{IVA: true, IRP: true}, Reminders: true}
+	want := ChatSettings{RUC: "80024627-6", Imputations: Imputations{IVA: true, IRP: true}, Reminders: true, AutoSave: true}
 	if got != want {
 		t.Errorf("configuración = %+v, se esperaba %+v", got, want)
 	}
-	if other, _ := s.Settings(ctx, chatB); other != (ChatSettings{Reminders: true}) {
+	if other, _ := s.Settings(ctx, chatB); other != (ChatSettings{Reminders: true, AutoSave: true}) {
 		t.Errorf("el chat B no debería tener configuración: %+v", other)
 	}
 }
@@ -201,16 +201,20 @@ func TestFlagsArePerChatAndKeepTheRest(t *testing.T) {
 	ctx := context.Background()
 	_ = s.SetRUC(ctx, chatA, "80024627-6")
 
-	_ = s.SetAutoSave(ctx, chatA, true)
+	_ = s.SetAutoSave(ctx, chatA, false)
 	_ = s.SetReminders(ctx, chatA, false)
 	_ = s.SetAwaitingRUC(ctx, chatA, true)
 
 	got, _ := s.Settings(ctx, chatA)
-	if got.RUC != "80024627-6" || !got.AutoSave || got.Reminders || !got.AwaitingRUC {
+	if got.RUC != "80024627-6" || got.AutoSave || got.Reminders || !got.AwaitingRUC {
 		t.Errorf("configuración = %+v", got)
 	}
-	if other, _ := s.Settings(ctx, chatB); other.AutoSave || !other.Reminders {
-		t.Errorf("el chat B mantiene los valores por defecto: %+v", other)
+	if other, _ := s.Settings(ctx, chatB); !other.AutoSave || !other.Reminders {
+		t.Errorf("el chat B mantiene los valores por defecto (autoguardado y recordatorios activados): %+v", other)
+	}
+	_ = s.SetAutoSave(ctx, chatA, true)
+	if again, _ := s.Settings(ctx, chatA); !again.AutoSave {
+		t.Errorf("volver a activarlo: %+v", again)
 	}
 }
 
@@ -238,11 +242,53 @@ func TestOpenMigratesADatabaseCreatedBeforeTheNewColumns(t *testing.T) {
 
 	// Assert: los datos siguen y las columnas nuevas tienen su valor por defecto.
 	got, err := s.Settings(context.Background(), chatA)
-	if err != nil || got.RUC != "80024627-6" || !got.Imputations.IVA || got.AutoSave || !got.Reminders {
+	if err != nil || got.RUC != "80024627-6" || !got.Imputations.IVA || !got.AutoSave || !got.Reminders {
 		t.Errorf("configuración migrada = %+v, error = %v", got, err)
 	}
 	var registration string
 	if err := s.db.QueryRow(`SELECT registration FROM chat_settings WHERE chat_id = 111`).Scan(&registration); err != nil || registration != "" {
 		t.Errorf("la migración debe dejar el registro sin elegir, no deducirlo: %q, %v", registration, err)
+	}
+}
+
+func TestAutoSaveMigrationKeepsWhoHadItOnAndTurnsItOnForTheRest(t *testing.T) {
+	// Arrange: la versión anterior guardaba auto_save como 0/1, apagado por defecto.
+	path := filepath.Join(t.TempDir(), "vieja.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE chat_settings (chat_id INTEGER PRIMARY KEY, ruc TEXT NOT NULL DEFAULT '',
+		impute_iva INTEGER NOT NULL DEFAULT 0, impute_ire INTEGER NOT NULL DEFAULT 0, impute_irp INTEGER NOT NULL DEFAULT 0,
+		auto_save INTEGER NOT NULL DEFAULT 0);
+		INSERT INTO chat_settings (chat_id, auto_save) VALUES (111, 1), (222, 0);`)
+	_ = old.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	// Assert: ambos quedan activados; el que lo tenía, como elección explícita.
+	for _, chat := range []int64{chatA, chatB} {
+		if cs, _ := s.Settings(context.Background(), chat); !cs.AutoSave {
+			t.Errorf("chat %d: autoguardado = %v", chat, cs.AutoSave)
+		}
+	}
+	var mode string
+	_ = s.db.QueryRow(`SELECT auto_save_mode FROM chat_settings WHERE chat_id = 111`).Scan(&mode)
+	if mode != "si" {
+		t.Errorf("quien lo había activado conserva la elección: %q", mode)
+	}
+	if err := s.SetAutoSave(context.Background(), chatB, false); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := s.Settings(context.Background(), chatB); cs.AutoSave {
+		t.Error("apagarlo a propósito se respeta")
 	}
 }

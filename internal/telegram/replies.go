@@ -48,7 +48,7 @@ const (
 	PhotoGoneMessage      = "😕 No pude volver a bajar la foto: Telegram ya no la tiene. Mandala de nuevo para releerla."
 	RereadingAnswer       = "⏳ Releyendo…"
 	RereadLimitAlert      = "Ya releí esta factura dos veces. Si sigue mal, corregí el campo a mano o sacá otra foto con más luz."
-	RereadSameMessage     = "🔁 Relectura %s: leyó lo mismo (RUC, timbrado, número, fecha y CDC). Si algo sigue mal, corregilo a mano o sacá otra foto."
+	RereadSameMessage     = "🔁 Relectura %s: leyó lo mismo en todos los campos. Si algo sigue mal, corregilo a mano o sacá otra foto."
 	NoRereadAlert         = "No hay una relectura para aplicar. Tocá Releer primero."
 	RereadAppliedAnswer   = "✅ Aplicado"
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
