@@ -27,6 +27,7 @@ const (
 	actionPhoto   = "o" // reenviar la foto original
 	actionReread  = "b" // volver a leer la foto, enfocado en RUC, número y CDC
 	actionAdopt   = "a" // tomar un campo (o todos) de la relectura
+	actionShow    = "m" // mostrar de nuevo la lectura, desde la foto reenviada
 )
 
 const fieldsPerRow = 2
@@ -65,7 +66,7 @@ func parseCallback(data string) (callback, error) {
 	case c.action == actionAdopt && len(parts) == 3 && (parts[2] == rereadAllFields || slices.Contains(invoice.EditableFields, parts[2])):
 		c.field = parts[2]
 		return c, nil
-	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC, actionPhoto, actionReread}, c.action):
+	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC, actionPhoto, actionReread, actionShow}, c.action):
 		return c, nil
 	default:
 		return callback{}, errInvalidCallback
@@ -108,27 +109,40 @@ func reviewKeyboard(id int64, inv invoice.Invoice, hasSource bool) *models.Inlin
 	return keyboard
 }
 
-// undoKeyboard acompaña a una factura guardada automáticamente.
-func undoKeyboard(id int64) *models.InlineKeyboardMarkup {
-	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
+// savedKeyboard acompaña a una factura guardada (sola o con el botón): deshacer y, si hay foto, verla.
+// Releer no va acá: para releer una guardada primero se deshace el guardado.
+func savedKeyboard(id int64, hasSource bool) *models.InlineKeyboardMarkup {
+	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
 		button("↩️ Deshacer", callback{action: actionUndo, id: id}),
 	}}}
-}
-
-// autoSavedKeyboard acompaña a una factura guardada sola: deshacer y, si hay foto, verla o releerla.
-func autoSavedKeyboard(id int64, hasSource bool) *models.InlineKeyboardMarkup {
-	keyboard := undoKeyboard(id)
 	if hasSource {
-		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, sourceKeyboardRow(id))
+		keyboard.InlineKeyboard[0] = append(keyboard.InlineKeyboard[0], photoButton(id))
 	}
 	return keyboard
 }
 
 // discardOnlyKeyboard se muestra cuando la factura ya estaba guardada.
-func discardOnlyKeyboard(id int64) *models.InlineKeyboardMarkup {
-	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
+func discardOnlyKeyboard(id int64, hasSource bool) *models.InlineKeyboardMarkup {
+	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
 		button("🗑️ Descartar", callback{action: actionDiscard, id: id}),
 	}}}
+	if hasSource {
+		keyboard.InlineKeyboard[0] = append(keyboard.InlineKeyboard[0], photoButton(id))
+	}
+	return keyboard
+}
+
+func photoButton(id int64) models.InlineKeyboardButton {
+	return button("📷 Ver foto", callback{action: actionPhoto, id: id})
+}
+
+// photoKeyboard acompaña a la foto reenviada: vuelve a la lectura y, si es borrador, relee.
+func photoKeyboard(id int64, draft bool) *models.InlineKeyboardMarkup {
+	row := []models.InlineKeyboardButton{button("📋 Ver lectura", callback{action: actionShow, id: id})}
+	if draft {
+		row = append(row, button("🔁 Releer", callback{action: actionReread, id: id}))
+	}
+	return &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{row}}
 }
 
 // noKeyboard quita los botones de un mensaje.

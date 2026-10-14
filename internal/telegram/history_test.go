@@ -63,7 +63,7 @@ func TestSavedDetailCorrectionReusesIDWithoutReadingAgain(t *testing.T) {
 	h.saveInvoiceOf(1, "2026-09-10", "001-001-0000001")
 	h.pressRaw("h:o:s:2026-09:0:1")
 	detail := lastEdited(t, h)
-	if !strings.Contains(detail.markup, `"h:e:s:2026-09:0:1"`) || !strings.Contains(detail.markup, `"l:a:1:2026-09"`) {
+	if !strings.Contains(detail.markup, `"h:e:s:2026-09:0:1"`) || !strings.Contains(detail.markup, `"l:a:1:2026-09"`) || !strings.Contains(detail.markup, `"o:1"`) {
 		t.Fatalf("detalle guardado: %+v", detail)
 	}
 	h.pressRaw("h:e:s:2026-09:0:1")

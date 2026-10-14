@@ -152,6 +152,10 @@ El botón **No sé** explica dónde consultarla; el bot no la deduce de los impu
 
 Las facturas que cierran (sin avisos ni dudas, y que no estaban guardadas) se guardan solas, con un botón **↩️ Deshacer**.
 Para revisarlas una por una antes de guardar: `/autoguardar no`.
+
+Cada lectura cita la foto que la generó (tocá la cita para ir a la foto) y lleva **📷 Ver foto**,
+también cuando ya está guardada o en el detalle de **Mis facturas**. La foto reenviada dice de qué
+factura es y tiene **📋 Ver lectura** para volver; en una pendiente, también **🔁 Releer**.
 En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las páginas y
 abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
 sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.
