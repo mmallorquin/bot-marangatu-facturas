@@ -37,7 +37,7 @@ type ChatSettings struct {
 	RUC           string
 	Imputations   Imputations
 	Registration  Registration
-	AutoSave      bool   // guardar sin preguntar las facturas que cierran
+	AutoSave      bool   // guardar sin preguntar las facturas que cierran (activado salvo que el usuario lo apague)
 	Reminders     bool   // recordar exportar cuando termina el período
 	AwaitingRUC   bool   // configuración guiada: el próximo texto es el RUC
 	PendingExport string // período solicitado antes de terminar la configuración
@@ -45,21 +45,25 @@ type ChatSettings struct {
 }
 
 // defaultSettings es la configuración de un chat que todavía no configuró nada.
-var defaultSettings = ChatSettings{Reminders: true}
+var defaultSettings = ChatSettings{Reminders: true, AutoSave: true}
 
 // Settings devuelve la configuración del chat (la de por defecto si todavía no configuró nada).
 func (s *Store) Settings(ctx context.Context, chatID int64) (ChatSettings, error) {
-	var cs ChatSettings
+	var (
+		cs           ChatSettings
+		autoSaveMode string
+	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save, reminders, awaiting_ruc, registration, pending_export, ruc_setup_key
+		SELECT ruc, impute_iva, impute_ire, impute_irp, auto_save_mode, reminders, awaiting_ruc, registration, pending_export, ruc_setup_key
 		FROM chat_settings WHERE chat_id = ?`, chatID).
-		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &cs.AutoSave, &cs.Reminders, &cs.AwaitingRUC, &cs.Registration, &cs.PendingExport, &cs.RUCSetupKey)
+		Scan(&cs.RUC, &cs.Imputations.IVA, &cs.Imputations.IRE, &cs.Imputations.IRP, &autoSaveMode, &cs.Reminders, &cs.AwaitingRUC, &cs.Registration, &cs.PendingExport, &cs.RUCSetupKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return defaultSettings, nil
 	}
 	if err != nil {
 		return ChatSettings{}, fmt.Errorf("leyendo la configuración: %w", err)
 	}
+	cs.AutoSave = autoSaveMode != "no"
 	return cs, nil
 }
 
@@ -99,9 +103,20 @@ func (s *Store) SetRegistration(ctx context.Context, chatID int64, ruc string, r
 	return nil
 }
 
-// SetAutoSave activa o desactiva el guardado automático.
+// SetAutoSave activa o desactiva el guardado automático. Se guarda como elección explícita,
+// distinta del valor por defecto, para que un cambio futuro del default no la pise.
 func (s *Store) SetAutoSave(ctx context.Context, chatID int64, on bool) error {
-	return s.setFlag(ctx, chatID, "auto_save", on)
+	mode := "no"
+	if on {
+		mode = "si"
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO chat_settings (chat_id, auto_save_mode) VALUES (?, ?)
+		ON CONFLICT (chat_id) DO UPDATE SET auto_save_mode = excluded.auto_save_mode`, chatID, mode)
+	if err != nil {
+		return fmt.Errorf("guardando la configuración: %w", err)
+	}
+	return nil
 }
 
 // SetReminders activa o desactiva los recordatorios de exportar.

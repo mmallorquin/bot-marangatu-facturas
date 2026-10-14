@@ -160,6 +160,10 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("no se pudo abrir la base: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	// El guardado automático viene activado; la mayoría de los tests revisan el flujo manual.
+	if err := st.SetAutoSave(context.Background(), testChatID, false); err != nil {
+		t.Fatalf("no se pudo apagar el guardado automático: %v", err)
+	}
 
 	rdr := &fakeReader{result: reader.Result{Invoice: sampleInvoice(), Model: "modelo-test", CostUSD: 0.001}}
 	handle := NewHandler(Deps{

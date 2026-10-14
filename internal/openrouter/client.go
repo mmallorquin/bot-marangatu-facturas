@@ -30,9 +30,9 @@ const (
 
 	userInstruction = "Extraé los datos de este comprobante."
 	// Relectura enfocada: el usuario ya vio una lectura con dudas en la identidad del comprobante.
-	identityInstruction = "Extraé los datos de este comprobante. Prestá especial atención a la identidad del comprobante: " +
-		"RUC del emisor con su dígito verificador, timbrado, número y CDC. Leé esos dígitos uno por uno, dos veces, " +
-		"y si alguno no se distingue con claridad marcá el campo como dudoso en vez de adivinarlo."
+	identityInstruction = "Volvé a leer el comprobante completo, con cuidado, campo por campo. Prestá especial atención a la " +
+		"identidad del comprobante: RUC del emisor con su dígito verificador, timbrado, número y CDC. Leé esos dígitos uno " +
+		"por uno, dos veces, y si alguno no se distingue con claridad marcá el campo como dudoso en vez de adivinarlo."
 	identityReasoning = "medium"
 
 	pdfMimeType = "application/pdf"

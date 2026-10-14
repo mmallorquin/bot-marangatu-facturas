@@ -110,7 +110,7 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 	case actionAdopt:
 		h.adoptReread(ctx, b, press, rec)
 	case actionField:
-		h.askForValue(ctx, b, press)
+		h.askForValue(ctx, b, press, rec)
 	}
 }
 
@@ -215,14 +215,14 @@ func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPr
 	h.answer(ctx, b, press.queryID, "", false)
 }
 
-func (h *handler) askForValue(ctx context.Context, b *bot.Bot, press buttonPress) {
+func (h *handler) askForValue(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	field := press.callback.field
 	if err := h.deps.Store.SetAwaiting(ctx, press.chatID, press.callback.id, field); err != nil {
 		h.logger.Error("no se pudo iniciar la corrección", "chat_id", press.chatID, "error", err)
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	h.send(ctx, b, press.chatID, askValueMessage(field), nil)
+	h.sendReply(ctx, b, press.chatID, rec.Source.MessageID, askValueMessage(field), nil)
 	h.answer(ctx, b, press.queryID, "", false)
 }
 

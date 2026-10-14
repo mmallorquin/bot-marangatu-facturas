@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-telegram/bot/models"
+
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
 )
 
@@ -84,5 +87,39 @@ func TestAutoSaveCommand(t *testing.T) {
 	}
 	if strings.Contains(h.telegram.lastSent(t).text, AutoSavedNote) {
 		t.Error("desactivado no debería guardar solo")
+	}
+}
+
+func TestAutoSaveIsOnByDefaultForANewChat(t *testing.T) {
+	// El harness lo apaga para el chat de prueba; otro chat recibe el valor por defecto.
+	h := newHarness(t)
+	const other = int64(4242)
+
+	h.send(&models.Update{Message: &models.Message{ID: 90, Chat: models.Chat{ID: other, Type: models.ChatTypePrivate}, Photo: photoUpdate().Message.Photo}})
+
+	sent := h.telegram.byMethod("sendMessage")
+	last := sent[len(sent)-1]
+	if !strings.Contains(last.text, AutoSavedNote) || !strings.Contains(last.markup, `"u:1"`) || !strings.Contains(last.markup, `"o:1"`) {
+		t.Errorf("una factura que cierra se guarda sola, con Deshacer y Ver foto: %+v", last)
+	}
+	if !strings.Contains(last.replyTo, `"message_id":90`) {
+		t.Errorf("y cita la foto: %q", last.replyTo)
+	}
+	if rec, _ := h.store.Get(context.Background(), other, 1); rec.Status != store.StatusSaved {
+		t.Errorf("estado = %s", rec.Status)
+	}
+}
+
+func TestEveryProcessMessageQuotesThePhoto(t *testing.T) {
+	h := newHarness(t)
+	h.sendPhoto()
+	h.press(callback{action: actionField, id: 1, field: invoice.FieldTotal})
+	h.sendText("abc")
+	h.sendText("150.000")
+
+	for _, m := range h.telegram.byMethod("sendMessage") {
+		if !strings.Contains(m.replyTo, `"message_id":77`) {
+			t.Errorf("mensaje sin cita a la foto: %q", m.text)
+		}
 	}
 }

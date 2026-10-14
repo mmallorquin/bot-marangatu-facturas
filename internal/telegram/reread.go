@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,9 +23,6 @@ const (
 
 	rereadAllFields = "todo"
 )
-
-// identityFields son los campos que identifican la factura: los que la relectura compara.
-var identityFields = []string{invoice.FieldIssuerRUC, invoice.FieldTimbrado, invoice.FieldNumber, invoice.FieldDate, invoice.FieldCDC}
 
 // sourceKeyboardRow son los botones para volver a la foto.
 func sourceKeyboardRow(id int64) []models.InlineKeyboardButton {
@@ -109,6 +107,14 @@ func (h *handler) handleRereadCallback(ctx context.Context, b *bot.Bot, query *m
 	h.reread(ctx, b, press, rec)
 }
 
+// photoOf es el mensaje a citar en las respuestas de la relectura: la foto si se guardó, si no la factura.
+func photoOf(rec store.Record, press buttonPress) int {
+	if rec.Source.MessageID > 0 {
+		return rec.Source.MessageID
+	}
+	return press.messageID
+}
+
 func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	ctx, cancel := context.WithTimeout(ctx, processTimeout)
 	defer cancel()
@@ -116,7 +122,9 @@ func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec
 	case h.deps.Operations.reads <- struct{}{}:
 		defer func() { <-h.deps.Operations.reads }()
 	case <-ctx.Done():
-		h.finishRead(ctx, func(ctx context.Context) { h.sendReply(ctx, b, press.chatID, press.messageID, ReadErrorMessage, nil) })
+		h.finishRead(ctx, func(ctx context.Context) {
+			h.sendReply(ctx, b, press.chatID, photoOf(rec, press), ReadErrorMessage, nil)
+		})
 		return
 	}
 
@@ -125,7 +133,7 @@ func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.logger.Warn("no se pudo volver a bajar la foto", "chat_id", press.chatID, "error", Redact(err, h.deps.Token))
 			h.track(ctx, press.chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.sendReply(ctx, b, press.chatID, press.messageID, PhotoGoneMessage, nil)
+			h.sendReply(ctx, b, press.chatID, photoOf(rec, press), PhotoGoneMessage, nil)
 		})
 		return
 	}
@@ -136,7 +144,7 @@ func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.logger.Error("no se pudo releer la factura", "chat_id", press.chatID, "error", err)
 			h.track(ctx, press.chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds()})
-			h.sendReply(ctx, b, press.chatID, press.messageID, readFailureMessage(err), nil)
+			h.sendReply(ctx, b, press.chatID, photoOf(rec, press), readFailureMessage(err), nil)
 		})
 		return
 	}
@@ -150,23 +158,24 @@ func (h *handler) showReread(ctx context.Context, b *bot.Bot, press buttonPress,
 	if err != nil || current.Status != store.StatusDraft {
 		return
 	}
+	replyTo := photoOf(current, press)
 	reread := result.Invoice
 	reread.Number = invoice.NormalizeNumber(reread.Number)
 	if err := h.deps.Store.SaveReread(ctx, press.chatID, current.ID, reread); err != nil {
 		h.logger.Error("no se pudo guardar la relectura", "chat_id", press.chatID, "error", err)
-		h.sendReply(ctx, b, press.chatID, press.messageID, StoreErrorMessage, nil)
+		h.sendReply(ctx, b, press.chatID, replyTo, StoreErrorMessage, nil)
 		return
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventReread, Seconds: seconds, CostUSD: result.CostUSD})
 
-	diffs := identityDiffs(current.Invoice, reread)
+	diffs := readingDiffs(current.Invoice, reread)
 	attempt := fmt.Sprintf("%d de %d", current.Rereads+1, maxRereads)
 	if !reread.IsInvoice {
-		h.sendReply(ctx, b, press.chatID, press.messageID, "🔁 Relectura "+attempt+": esta vez el modelo no reconoció una factura. "+RetakeTip, nil)
+		h.sendReply(ctx, b, press.chatID, replyTo, "🔁 Relectura "+attempt+": esta vez el modelo no reconoció una factura. "+RetakeTip, nil)
 		return
 	}
 	if len(diffs) == 0 {
-		h.sendReply(ctx, b, press.chatID, press.messageID, fmt.Sprintf(RereadSameMessage, attempt), nil)
+		h.sendReply(ctx, b, press.chatID, replyTo, fmt.Sprintf(RereadSameMessage, attempt), nil)
 		return
 	}
 
@@ -183,37 +192,70 @@ func (h *handler) showReread(ctx context.Context, b *bot.Bot, press buttonPress,
 		rows = append(rows, []models.InlineKeyboardButton{button("Usar todo lo de la relectura", callback{action: actionAdopt, id: current.ID, field: rereadAllFields})})
 	}
 	text.WriteString("\nMirá la factura y tocá lo que corresponda. Si ninguna es correcta, corregí el campo a mano.")
-	h.sendReply(ctx, b, press.chatID, press.messageID, text.String(), &models.InlineKeyboardMarkup{InlineKeyboard: rows})
+	h.sendReply(ctx, b, press.chatID, replyTo, text.String(), &models.InlineKeyboardMarkup{InlineKeyboard: rows})
 }
 
-// fieldDiff es un campo de identidad en el que la relectura difiere del borrador.
+// fieldDiff es un campo en el que la relectura difiere del borrador.
 type fieldDiff struct {
 	Field, Current, Reread string
 }
 
-func identityDiffs(current, reread invoice.Invoice) []fieldDiff {
-	values := func(inv invoice.Invoice) map[string]string {
-		return map[string]string{
-			invoice.FieldIssuerRUC: strings.ToUpper(strings.TrimSpace(inv.IssuerRUC)),
-			invoice.FieldTimbrado:  strings.TrimSpace(inv.Timbrado),
-			invoice.FieldNumber:    invoice.NormalizeNumber(inv.Number),
-			invoice.FieldDate:      inv.Date,
-			invoice.FieldCDC:       strings.TrimSpace(inv.CDC),
-		}
-	}
-	a, b := values(current), values(reread)
+// readingDiffs compara todos los campos corregibles: la relectura vuelve a leer la imagen entera.
+func readingDiffs(current, reread invoice.Invoice) []fieldDiff {
 	var diffs []fieldDiff
-	for _, field := range identityFields {
-		if a[field] != b[field] {
-			diffs = append(diffs, fieldDiff{Field: field, Current: display(field, a[field]), Reread: display(field, b[field])})
+	for _, field := range invoice.EditableFields {
+		a, b := comparableValue(current, field), comparableValue(reread, field)
+		if a != b {
+			diffs = append(diffs, fieldDiff{Field: field, Current: display(field, a), Reread: display(field, b)})
 		}
 	}
 	return diffs
 }
 
+// comparableValue es el valor del campo normalizado para comparar y para volver a cargarlo con Edit.
+func comparableValue(inv invoice.Invoice, field string) string {
+	switch field {
+	case invoice.FieldIssuerName:
+		return strings.TrimSpace(inv.IssuerName)
+	case invoice.FieldIssuerRUC:
+		return strings.ToUpper(strings.TrimSpace(inv.IssuerRUC))
+	case invoice.FieldTimbrado:
+		return strings.TrimSpace(inv.Timbrado)
+	case invoice.FieldNumber:
+		return invoice.NormalizeNumber(inv.Number)
+	case invoice.FieldDate:
+		return inv.Date
+	case invoice.FieldCondition:
+		return inv.Condition
+	case invoice.FieldExempt:
+		return strconv.FormatInt(inv.Exempt, 10)
+	case invoice.FieldTaxed5:
+		return strconv.FormatInt(inv.Taxed5, 10)
+	case invoice.FieldTaxed10:
+		return strconv.FormatInt(inv.Taxed10, 10)
+	case invoice.FieldVAT5:
+		return strconv.FormatInt(inv.VAT5, 10)
+	case invoice.FieldVAT10:
+		return strconv.FormatInt(inv.VAT10, 10)
+	case invoice.FieldTotal:
+		return strconv.FormatInt(inv.Total, 10)
+	case invoice.FieldCDC:
+		return strings.TrimSpace(inv.CDC)
+	}
+	return ""
+}
+
+// display muestra el valor como lo ve el usuario en la factura.
 func display(field, value string) string {
-	if field == invoice.FieldDate {
+	switch field {
+	case invoice.FieldDate:
 		return displayDate(value)
+	case invoice.FieldCondition:
+		return labelOr(conditionLabels, value, value)
+	case invoice.FieldExempt, invoice.FieldTaxed5, invoice.FieldTaxed10, invoice.FieldVAT5, invoice.FieldVAT10, invoice.FieldTotal:
+		if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return formatGs(n)
+		}
 	}
 	return value
 }
@@ -232,11 +274,17 @@ func (h *handler) adoptReread(ctx context.Context, b *bot.Bot, press buttonPress
 		return
 	}
 	edited := rec.Invoice
-	for _, d := range identityDiffs(rec.Invoice, *rec.Reread) {
+	for _, d := range readingDiffs(rec.Invoice, *rec.Reread) {
 		if press.callback.field != rereadAllFields && press.callback.field != d.Field {
 			continue
 		}
-		value := rawIdentityValue(*rec.Reread, d.Field)
+		value := comparableValue(*rec.Reread, d.Field)
+		if value == "" && (d.Field == invoice.FieldIssuerName || d.Field == invoice.FieldCDC) {
+			if d.Field == invoice.FieldIssuerName {
+				continue // una razón social vacía no reemplaza a una leída
+			}
+			value = "no"
+		}
 		next, err := invoice.Edit(edited, d.Field, value)
 		if err != nil {
 			h.answer(ctx, b, press.queryID, "❌ "+err.Error(), true)
@@ -253,23 +301,4 @@ func (h *handler) adoptReread(ctx context.Context, b *bot.Bot, press buttonPress
 	text, _ := h.invoiceMessage(ctx, press.chatID, edited, invoice.Validate(edited))
 	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 	h.answer(ctx, b, press.queryID, RereadAppliedAnswer, false)
-}
-
-func rawIdentityValue(inv invoice.Invoice, field string) string {
-	switch field {
-	case invoice.FieldIssuerRUC:
-		return inv.IssuerRUC
-	case invoice.FieldTimbrado:
-		return inv.Timbrado
-	case invoice.FieldNumber:
-		return inv.Number
-	case invoice.FieldDate:
-		return inv.Date
-	case invoice.FieldCDC:
-		if inv.CDC == "" {
-			return "no"
-		}
-		return inv.CDC
-	}
-	return ""
 }

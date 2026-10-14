@@ -216,6 +216,8 @@ var addedColumns = []struct{ table, column, definition string }{
 	{"invoices", "source_message_id", "INTEGER NOT NULL DEFAULT 0"},
 	{"invoices", "rereads", "INTEGER NOT NULL DEFAULT 0"},   // relecturas pedidas por el usuario
 	{"invoices", "reread_json", "TEXT NOT NULL DEFAULT ''"}, // última relectura, para adoptar sus campos
+	// Guardado automático: '' = el valor por defecto (activado), 'si' o 'no' si el usuario lo eligió.
+	{"chat_settings", "auto_save_mode", "TEXT NOT NULL DEFAULT '' CHECK (auto_save_mode IN ('', 'si', 'no'))"},
 }
 
 func migrate(db *sql.DB) error {
@@ -235,6 +237,13 @@ func migrate(db *sql.DB) error {
 		}
 		if _, err := tx.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.definition)); err != nil {
 			return fmt.Errorf("agregando la columna %s.%s: %w", c.table, c.column, err)
+		}
+		if c.table == "chat_settings" && c.column == "auto_save_mode" {
+			// Quien ya lo había activado lo conserva. El resto pasa al nuevo valor por defecto (activado):
+			// en la versión anterior venía apagado y casi nadie lo había tocado.
+			if _, err := tx.Exec(`UPDATE chat_settings SET auto_save_mode = 'si' WHERE auto_save = 1`); err != nil {
+				return fmt.Errorf("migrando el guardado automático: %w", err)
+			}
 		}
 		if c.table == "exports" && c.column == "delivered_at" {
 			// La versión anterior consideraba toda exportación como entregada.

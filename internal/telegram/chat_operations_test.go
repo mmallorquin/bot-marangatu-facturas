@@ -113,6 +113,10 @@ func TestDeleteConfirmationIsSingleUseAndSupersededByNewQuestion(t *testing.T) {
 	if drafts, _ := h.store.Drafts(context.Background(), testChatID); len(drafts) != 0 {
 		t.Fatal("current confirmation did not delete data")
 	}
+	// Borrar los datos borró también la configuración: el chat vuelve al guardado automático por defecto.
+	if err := h.store.SetAutoSave(context.Background(), testChatID, false); err != nil {
+		t.Fatal(err)
+	}
 	h.sendPhoto()
 	h.pressRaw(current)
 	if drafts, _ := h.store.Drafts(context.Background(), testChatID); len(drafts) != 1 {

@@ -150,7 +150,8 @@ El botón **No sé** explica dónde consultarla; el bot no la deduce de los impu
 4. **✅ Guardar**: solo se puede si todos los datos cierran. Si ya habías guardado la misma factura, te avisa
    apenas la lee. Si es electrónica (tiene CDC), no va en el ZIP: obtenela en Marangatu y revisá su imputación.
 
-Con `/autoguardar si`, las facturas que cierran se guardan solas, con un botón **↩️ Deshacer**.
+Las facturas que cierran (sin avisos ni dudas, y que no estaban guardadas) se guardan solas, con un botón **↩️ Deshacer**.
+Para revisarlas una por una antes de guardar: `/autoguardar no`.
 En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las páginas y
 abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
 sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.
@@ -175,7 +176,7 @@ si cambian las facturas o los ajustes, la previa advierte que esa confirmación 
 | `/registro` | Consulta o elige con botones la obligación 955 mensual o 956 anual |
 | `/registro 955` / `956` | Configura la obligación que corresponda a tu RUC |
 | `/pendientes` | Cuenta las facturas leídas sin guardar y guarda de una vez las que cierran |
-| `/autoguardar si` / `no` | Guardar solas las facturas que cierran |
+| `/autoguardar si` / `no` | Guardar solas las facturas que cierran (viene activado) |
 | `/recordatorios si` / `no` | Aviso de exportar según `/registro`: desde el día 3 por el mes anterior (955) o el 15 de enero por el año anterior (956); no es un vencimiento oficial |
 | `/cancelar` | Cancela una corrección a medias |
 | `/borrar_mis_datos` | Borra todo lo que guardaste en el bot, con confirmación |

@@ -159,9 +159,9 @@ func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *model
 	h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhoto, Detail: detail})
 	switch {
 	case msg.MediaGroupID == "":
-		h.send(ctx, b, msg.Chat.ID, ReadingMessage, nil)
+		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, ReadingMessage, nil)
 	case h.albums.first(msg.MediaGroupID, time.Now()):
-		h.send(ctx, b, msg.Chat.ID, ReadingAlbumMessage, nil)
+		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, ReadingAlbumMessage, nil)
 	}
 	c.mu.Unlock()
 	defer func() {
@@ -253,7 +253,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 	case <-ctx.Done():
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.send(ctx, b, chatID, ReadErrorMessage, nil)
+			h.sendReply(ctx, b, chatID, photoMessageID, ReadErrorMessage, nil)
 		})
 		return
 	}
@@ -263,7 +263,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.deps.Token))
 			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.send(ctx, b, chatID, ReadErrorMessage, nil)
+			h.sendReply(ctx, b, chatID, photoMessageID, ReadErrorMessage, nil)
 		})
 		return
 	}
@@ -276,7 +276,7 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 			h.track(ctx, chatID, store.Event{
 				Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
 			})
-			h.send(ctx, b, chatID, readFailureMessage(err), nil)
+			h.sendReply(ctx, b, chatID, photoMessageID, readFailureMessage(err), nil)
 		})
 		return
 	}
@@ -322,7 +322,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 		"problemas", len(issues),
 	)
 	if !inv.IsInvoice {
-		h.send(ctx, b, chatID, NotInvoiceMessage, nil)
+		h.sendReply(ctx, b, chatID, photoMessageID, NotInvoiceMessage, nil)
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
-			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, undoKeyboard(id))
+			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, autoSavedKeyboard(id, source.FileID != ""))
 			return
 		}
 		// Si falla el guardado automático, queda como borrador con los botones de siempre.
@@ -402,7 +402,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	edited, err := invoice.Edit(rec.Invoice, pending.Field, text)
 	if err != nil {
 		h.track(ctx, chatID, store.Event{Kind: store.EventBadCorrection, Detail: pending.Field})
-		h.send(ctx, b, chatID, "❌ "+err.Error()+"\n"+retryOrCancelHint, nil)
+		h.sendReply(ctx, b, chatID, rec.Source.MessageID, "❌ "+err.Error()+"\n"+retryOrCancelHint, nil)
 		return
 	}
 	if err := h.deps.Store.UpdateInvoice(ctx, chatID, rec.ID, edited); err != nil {
@@ -415,7 +415,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
 	message, _ := h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited))
-	h.send(ctx, b, chatID, message, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
+	h.sendReply(ctx, b, chatID, rec.Source.MessageID, message, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {

@@ -80,8 +80,8 @@ func TestRereadOffersTheFieldsThatDifferAndAppliesThem(t *testing.T) {
 			t.Errorf("falta %q en la oferta: %+v", want, offer)
 		}
 	}
-	if !strings.Contains(offer.replyTo, `"message_id":10`) {
-		t.Errorf("la oferta cita el mensaje de la factura: %q", offer.replyTo)
+	if !strings.Contains(offer.replyTo, `"message_id":77`) {
+		t.Errorf("la oferta cita el mensaje de la foto: %q", offer.replyTo)
 	}
 
 	// Act: tomar solo el RUC.
@@ -156,5 +156,33 @@ func TestRereadWithoutSourceOrWhenTelegramLostThePhoto(t *testing.T) {
 	}
 	if len(h2.reader.received) != 1 {
 		t.Error("sin foto no se llama al modelo")
+	}
+}
+
+func TestRereadComparesEveryFieldIncludingAmounts(t *testing.T) {
+	// Arrange: la primera lectura se equivocó en un monto y en la razón social; la relectura no.
+	h := newHarness(t)
+	wrong := sampleInvoice()
+	wrong.IssuerName = "Comercial Ejemplo S.A"
+	wrong.Taxed10 = 150_001
+	wrong.Total = 150_001
+	h.reader.result.Invoice = wrong
+	h.sendPhoto()
+	h.reader.result.Invoice = sampleInvoice()
+
+	// Act
+	h.press(callback{action: actionReread, id: 1})
+	offer := h.telegram.lastSent(t)
+	h.press(callback{action: actionAdopt, id: 1, field: rereadAllFields})
+	rec, _ := h.store.Get(context.Background(), testChatID, 1)
+
+	// Assert
+	for _, want := range []string{"Gravada 10 %: 150.001 → 150.000", "Total: 150.001 → 150.000", "Razón social: Comercial Ejemplo S.A → Comercial Ejemplo S.A.", `"a:1:gravada_10"`} {
+		if !strings.Contains(offer.text+offer.markup, want) {
+			t.Errorf("falta %q en la oferta: %+v", want, offer)
+		}
+	}
+	if rec.Invoice.Taxed10 != 150_000 || rec.Invoice.Total != 150_000 || rec.Invoice.IssuerName != "Comercial Ejemplo S.A." {
+		t.Errorf("después de adoptar todo: %+v", rec.Invoice)
 	}
 }
