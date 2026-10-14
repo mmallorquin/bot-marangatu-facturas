@@ -99,12 +99,16 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.editKeyboard(ctx, b, press, fieldsKeyboard(c.id))
 		h.answer(ctx, b, press.queryID, "", false)
 	case actionBack:
-		h.editKeyboard(ctx, b, press, reviewKeyboard(c.id, rec.Invoice))
+		h.editKeyboard(ctx, b, press, reviewKeyboard(c.id, rec.Invoice, rec.Source.FileID != ""))
 		h.answer(ctx, b, press.queryID, "", false)
 	case actionUseRUC:
 		h.applyShortcut(ctx, b, press, rec, invoice.FieldIssuerRUC, RUCAppliedAnswer, "")
 	case actionNoCDC:
 		h.applyShortcut(ctx, b, press, rec, invoice.FieldCDC, "", CDCClearedNote)
+	case actionPhoto:
+		h.sendSourcePhoto(ctx, b, press, rec)
+	case actionAdopt:
+		h.adoptReread(ctx, b, press, rec)
 	case actionField:
 		h.askForValue(ctx, b, press)
 	}
@@ -118,7 +122,7 @@ func (h *handler) applyShortcut(ctx context.Context, b *bot.Bot, press buttonPre
 		suggested, ok := invoice.SuggestRUC(rec.Invoice.IssuerRUC)
 		if !ok {
 			h.answer(ctx, b, press.queryID, "El RUC ya está bien.", false)
-			h.editKeyboard(ctx, b, press, reviewKeyboard(rec.ID, rec.Invoice))
+			h.editKeyboard(ctx, b, press, reviewKeyboard(rec.ID, rec.Invoice, rec.Source.FileID != ""))
 			return
 		}
 		value = suggested
@@ -137,7 +141,7 @@ func (h *handler) applyShortcut(ctx context.Context, b *bot.Bot, press buttonPre
 	if note != "" {
 		text += "\n\n" + note
 	}
-	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited))
+	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 	h.answer(ctx, b, press.queryID, answer, false)
 }
 
@@ -188,7 +192,7 @@ func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPres
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, reviewKeyboard(rec.ID, rec.Invoice))
+	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, reviewKeyboard(rec.ID, rec.Invoice, rec.Source.FileID != ""))
 	h.answer(ctx, b, press.queryID, "", false)
 }
 

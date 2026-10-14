@@ -24,6 +24,8 @@ const (
 	EventSaveBlocked      = "guardar_bloqueado"
 	EventReadIssue        = "lectura_problema" // un campo con problema o aviso al leer; detalle: campo
 	EventBlockedField     = "campo_bloqueante" // un campo que impidió guardar; detalle: campo
+	EventReread           = "relectura"        // el usuario pidió releer la foto; lleva costo y segundos
+	EventViewPhoto        = "ver_foto"         // el usuario pidió ver la foto original
 	EventDiscarded        = "descartada"
 	EventUndo             = "deshecha" // tocó Deshacer en una factura guardada automáticamente
 	EventAutoSave         = "autoguardar"
@@ -132,6 +134,8 @@ type Metrics struct {
 	// Campos con problemas al leer y campos que bloquearon un guardado, de más a menos frecuente.
 	ReadIssueFields []FieldCount
 	BlockedFields   []FieldCount
+	Rereads         int // relecturas pedidas (su costo ya está sumado en CostUSD)
+	PhotoViews      int
 	Abandoned       int // borradores del período sin guardar ni descartar después de 24 h
 
 	// Correcciones
@@ -320,6 +324,10 @@ func addEvent(m *Metrics, kind, detail string, count int) {
 		m.ReadIssueFields = append(m.ReadIssueFields, FieldCount{Field: detail, Count: count})
 	case EventBlockedField:
 		m.BlockedFields = append(m.BlockedFields, FieldCount{Field: detail, Count: count})
+	case EventReread:
+		m.Rereads += count
+	case EventViewPhoto:
+		m.PhotoViews += count
 	case EventCorrection:
 		m.Corrections = append(m.Corrections, FieldCount{Field: detail, Count: count})
 	case EventBadCorrection:

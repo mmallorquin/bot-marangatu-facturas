@@ -29,6 +29,11 @@ const (
 	appTitle = "bot-marangatu-facturas"
 
 	userInstruction = "Extraé los datos de este comprobante."
+	// Relectura enfocada: el usuario ya vio una lectura con dudas en la identidad del comprobante.
+	identityInstruction = "Extraé los datos de este comprobante. Prestá especial atención a la identidad del comprobante: " +
+		"RUC del emisor con su dígito verificador, timbrado, número y CDC. Leé esos dígitos uno por uno, dos veces, " +
+		"y si alguno no se distingue con claridad marcá el campo como dudoso en vez de adivinarlo."
+	identityReasoning = "medium"
 
 	pdfMimeType = "application/pdf"
 	pdfFileName = "factura.pdf"
@@ -151,9 +156,16 @@ func (c *Client) Read(ctx context.Context, img reader.Image) (reader.Result, err
 func (c *Client) buildRequest(img reader.Image) chatRequest {
 	dataURL := "data:" + img.MimeType + ";base64," + base64.StdEncoding.EncodeToString(img.Data)
 
+	instruction := userInstruction
 	var effort *reasoning
 	if c.opts.ReasoningEffort != "" {
 		effort = &reasoning{Effort: c.opts.ReasoningEffort, Exclude: true}
+	}
+	if img.Focus == reader.FocusIdentity {
+		instruction = identityInstruction
+		if effort == nil {
+			effort = &reasoning{Effort: identityReasoning, Exclude: true}
+		}
 	}
 	provider := providerPrefs{DataCollection: "deny", ZDR: c.opts.ZDR, RequireParameters: true}
 	var plugins []plugin
@@ -169,7 +181,7 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 		Messages: []message{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: []contentPart{
-				{Type: "text", Text: userInstruction},
+				{Type: "text", Text: instruction},
 				attachment(img.MimeType, dataURL),
 			}},
 		},

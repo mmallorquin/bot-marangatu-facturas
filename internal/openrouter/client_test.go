@@ -531,3 +531,32 @@ func TestReadKeepsImageRoutingFreeOfPDFParser(t *testing.T) {
 		t.Errorf("image provider routing changed: %v", provider)
 	}
 }
+
+func TestReadWithIdentityFocusSendsAFocusedInstructionAndMediumReasoning(t *testing.T) {
+	// Arrange
+	var captured capturedRequest
+	client := newTestClient(t, http.StatusOK, fakeChatResponse(invoiceJSON, "stop"), &captured)
+	focused := reader.Image{Data: testImage.Data, MimeType: testImage.MimeType, Focus: reader.FocusIdentity}
+
+	// Act
+	if _, err := client.Read(context.Background(), focused); err != nil {
+		t.Fatalf("error inesperado: %v", err)
+	}
+
+	// Assert
+	raw, _ := json.Marshal(captured.body["messages"])
+	if !strings.Contains(string(raw), "dígito verificador") || !strings.Contains(string(raw), "CDC") {
+		t.Errorf("la relectura debería pedir atención a la identidad:\n%s", raw)
+	}
+	if got := captured.body["reasoning"]; !reflect.DeepEqual(got, map[string]any{"effort": "medium", "exclude": true}) {
+		t.Errorf("reasoning = %v", got)
+	}
+
+	// Con un esfuerzo configurado, se respeta el configurado.
+	var fixed capturedRequest
+	client = newTestClient(t, http.StatusOK, fakeChatResponse(invoiceJSON, "stop"), &fixed, func(o *Options) { o.ReasoningEffort = "low" })
+	_, _ = client.Read(context.Background(), focused)
+	if got := fixed.body["reasoning"]; !reflect.DeepEqual(got, map[string]any{"effort": "low", "exclude": true}) {
+		t.Errorf("reasoning configurado = %v", got)
+	}
+}

@@ -391,3 +391,55 @@ func TestDeleteChatClearsExportRequestsOnlyForThatChat(t *testing.T) {
 		t.Fatalf("borrado de solicitudes: chat borrado=%d, otro chat=%d", deleted, kept)
 	}
 }
+
+func TestDraftKeepsThePhotoReferenceAndRereads(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	src := Source{FileID: "f-1", MimeType: "image/jpeg", MessageID: 77}
+
+	id, err := s.CreateDraft(ctx, chatA, Draft{Invoice: sampleInvoice("001-001-0000001", 110_000), Model: "m", Source: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reread := sampleInvoice("001-001-0000002", 110_000)
+	if err := s.SaveReread(ctx, chatA, id, reread); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := s.Get(ctx, chatA, id)
+	if err != nil || rec.Source != src || rec.Rereads != 1 || rec.Reread == nil || rec.Reread.Number != "001-001-0000002" {
+		t.Errorf("registro = %+v, error = %v", rec, err)
+	}
+	if err := s.Save(ctx, chatA, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveReread(ctx, chatA, id, reread); !errors.Is(err, ErrNotDraft) {
+		t.Errorf("una guardada no se relee: %v", err)
+	}
+}
+
+func TestOpenMigratesInvoicesCreatedBeforeThePhotoReference(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vieja.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, status TEXT NOT NULL,
+		invoice_json TEXT NOT NULL, original_json TEXT NOT NULL, model TEXT NOT NULL, cost_usd REAL NOT NULL,
+		corrected INTEGER NOT NULL DEFAULT 0, awaiting_field TEXT, dedup_key TEXT, period TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at)
+		VALUES (111, 'borrador', '{"es_comprobante":true,"numero":"001-001-0000001"}', '{}', 'm', 0, '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z');`)
+	_ = old.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	rec, err := s.Get(context.Background(), chatA, 1)
+	if err != nil || rec.Source.FileID != "" || rec.Rereads != 0 || rec.Reread != nil || rec.Invoice.Number != "001-001-0000001" {
+		t.Errorf("borrador anterior = %+v, error = %v", rec, err)
+	}
+}
