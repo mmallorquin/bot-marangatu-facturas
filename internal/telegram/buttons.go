@@ -79,14 +79,17 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 	}
 
 	rec, err := h.deps.Store.Get(ctx, press.chatID, c.id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && rec.Status != store.StatusDraft) {
-		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
-		h.editKeyboard(ctx, b, press, noKeyboard())
-		return
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		h.logger.Error("no se pudo leer la factura", "chat_id", press.chatID, "error", err)
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	// Ver la foto y volver a la lectura valen mientras la factura exista, guardada o pendiente.
+	// El resto de los botones edita el borrador, así que una guardada o descartada ya no los acepta.
+	viewing := c.action == actionPhoto || c.action == actionShow
+	if err != nil || rec.Status == store.StatusDiscarded || (!viewing && rec.Status != store.StatusDraft) {
+		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
+		h.editKeyboard(ctx, b, press, noKeyboard())
 		return
 	}
 
@@ -107,6 +110,8 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.applyShortcut(ctx, b, press, rec, invoice.FieldCDC, "", CDCClearedNote)
 	case actionPhoto:
 		h.sendSourcePhoto(ctx, b, press, rec)
+	case actionShow:
+		h.showReading(ctx, b, press, rec)
 	case actionAdopt:
 		h.adoptReread(ctx, b, press, rec)
 	case actionField:
@@ -162,7 +167,7 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, FixBeforeSavingAlert, true)
 	case errors.Is(err, store.ErrDuplicate):
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventDuplicate})
-		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+DuplicateNote, discardOnlyKeyboard(rec.ID))
+		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+DuplicateNote, discardOnlyKeyboard(rec.ID, rec.Source.FileID != ""))
 		h.answer(ctx, b, press.queryID, "", false)
 	case err != nil:
 		h.logger.Error("no se pudo guardar la factura", "chat_id", press.chatID, "error", err)
@@ -170,7 +175,7 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 	default:
 		h.logger.Info("factura guardada", "chat_id", press.chatID, "id", rec.ID, "corregida", rec.Corrected)
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: savedDetail(rec.Corrected)})
-		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, undoKeyboard(rec.ID))
+		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, savedKeyboard(rec.ID, rec.Source.FileID != ""))
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
 	}
 }

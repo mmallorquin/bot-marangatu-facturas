@@ -250,6 +250,9 @@ func (h *handler) handleHistoryCallback(ctx context.Context, b *bot.Bot, query *
 			historyButton("✏️ Corregir", edit),
 			{Text: "🗑️ Borrar", CallbackData: listCallback{action: listActionAsk, id: c.id, period: c.period}.encode()},
 		}}}
+		if rec.Source.FileID != "" {
+			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{photoButton(c.id)})
+		}
 	} else {
 		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice, invoice.Validate(rec.Invoice))
 	}

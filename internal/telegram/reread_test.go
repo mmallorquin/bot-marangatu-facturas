@@ -39,6 +39,10 @@ func TestViewPhotoResendsTheOriginalByFileID(t *testing.T) {
 	if len(photos) != 1 || photos[0].fileName != "grande" || !strings.Contains(photos[0].replyTo, `"message_id":10`) {
 		t.Errorf("reenvío de la foto: %+v", photos)
 	}
+	if photo := photos[0]; !strings.Contains(photo.text, "📷 Foto de la factura") || !strings.Contains(photo.text, "001-001-0001234") ||
+		!strings.Contains(photo.markup, `"m:1"`) || !strings.Contains(photo.markup, `"b:1"`) {
+		t.Errorf("la foto dice de qué factura es y ofrece volver a la lectura o releer: %+v", photo)
+	}
 	if h.telegram.requestedFileID != "grande" || len(h.reader.received) != 1 {
 		t.Error("ver la foto no debería descargarla ni leerla de nuevo")
 	}
@@ -184,5 +188,75 @@ func TestRereadComparesEveryFieldIncludingAmounts(t *testing.T) {
 	}
 	if rec.Invoice.Taxed10 != 150_000 || rec.Invoice.Total != 150_000 || rec.Invoice.IssuerName != "Comercial Ejemplo S.A." {
 		t.Errorf("después de adoptar todo: %+v", rec.Invoice)
+	}
+}
+
+func TestViewPhotoAndBackToTheReadingWorkOnASavedInvoice(t *testing.T) {
+	// Arrange: la factura cierra y se guarda sola.
+	h := newHarness(t)
+	if err := h.store.SetAutoSave(context.Background(), testChatID, true); err != nil {
+		t.Fatal(err)
+	}
+	h.sendPhoto()
+	saved := h.telegram.lastSent(t)
+	if !strings.Contains(saved.text, AutoSavedNote) || !strings.Contains(saved.markup, `"o:1"`) || strings.Contains(saved.markup, `"b:1"`) {
+		t.Fatalf("la guardada ofrece Ver foto pero no Releer: %+v", saved)
+	}
+
+	// Act: ver la foto y volver a la lectura.
+	h.press(callback{action: actionPhoto, id: 1})
+	h.press(callback{action: actionShow, id: 1})
+
+	// Assert: nada se rechazó ni perdió sus botones; la foto no ofrece Releer; la lectura vuelve citando la foto.
+	for _, a := range h.telegram.byMethod("answerCallbackQuery") {
+		if a.text == NoLongerEditableAlert {
+			t.Fatal("Ver foto o Ver lectura rechazado en una guardada")
+		}
+	}
+	if edits := h.telegram.byMethod("editMessageReplyMarkup"); len(edits) != 0 {
+		t.Errorf("no debería tocar los botones de la guardada: %+v", edits)
+	}
+	photos := h.telegram.byMethod("sendPhoto")
+	if len(photos) != 1 || !strings.Contains(photos[0].markup, `"m:1"`) || strings.Contains(photos[0].markup, `"b:1"`) {
+		t.Errorf("foto de una guardada: %+v", photos)
+	}
+	reading := h.telegram.lastSent(t)
+	if !strings.Contains(reading.text, SavedNote) || !strings.Contains(reading.markup, `"u:1"`) || !strings.Contains(reading.markup, `"o:1"`) ||
+		!strings.Contains(reading.replyTo, `"message_id":77`) {
+		t.Errorf("la lectura vuelve como guardada, con Deshacer y Ver foto, citando la foto: %+v", reading)
+	}
+}
+
+func TestBackToTheReadingOfADraftOffersTheReviewButtons(t *testing.T) {
+	h := newHarness(t)
+	h.sendPhoto()
+	h.press(callback{action: actionPhoto, id: 1})
+
+	h.press(callback{action: actionShow, id: 1})
+
+	reading := h.telegram.lastSent(t)
+	if !strings.Contains(reading.text, "80000519-8") || !strings.Contains(reading.markup, `"g:1"`) || !strings.Contains(reading.markup, `"b:1"`) ||
+		!strings.Contains(reading.replyTo, `"message_id":77`) {
+		t.Errorf("la lectura del borrador vuelve con Guardar y Releer, citando la foto: %+v", reading)
+	}
+}
+
+func TestViewPhotoIsOfferedAfterSavingByHandAndOnDuplicates(t *testing.T) {
+	h := newHarness(t)
+	h.saveInvoiceOf(1, "2026-09-10", "001-001-0000001")
+	if saved := lastEdit(t, h); !strings.Contains(saved.text, SavedNote) || !strings.Contains(saved.markup, `"o:1"`) {
+		t.Errorf("guardada a mano: %+v", saved)
+	}
+
+	h.sendPhoto() // la misma factura otra vez
+	h.press(callback{action: actionSave, id: 2})
+
+	if dup := lastEdit(t, h); !strings.Contains(dup.text, DuplicateNote) || !strings.Contains(dup.markup, `"d:2"`) || !strings.Contains(dup.markup, `"o:2"`) {
+		t.Errorf("duplicada: %+v", dup)
+	}
+	h.press(callback{action: actionDiscard, id: 2})
+	h.press(callback{action: actionPhoto, id: 2})
+	if answers := h.telegram.byMethod("answerCallbackQuery"); answers[len(answers)-1].text != NoLongerEditableAlert {
+		t.Error("una descartada ya no ofrece la foto")
 	}
 }

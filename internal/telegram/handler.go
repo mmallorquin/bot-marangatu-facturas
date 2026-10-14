@@ -341,7 +341,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
-			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, autoSavedKeyboard(id, source.FileID != ""))
+			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, savedKeyboard(id, source.FileID != ""))
 			return
 		}
 		// Si falla el guardado automático, queda como borrador con los botones de siempre.

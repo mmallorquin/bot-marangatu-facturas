@@ -27,26 +27,46 @@ const (
 // sourceKeyboardRow son los botones para volver a la foto.
 func sourceKeyboardRow(id int64) []models.InlineKeyboardButton {
 	return []models.InlineKeyboardButton{
-		button("📷 Ver foto", callback{action: actionPhoto, id: id}),
+		photoButton(id),
 		button("🔁 Releer", callback{action: actionReread, id: id}),
 	}
 }
 
-// sendSourcePhoto reenvía la foto o el PDF original citando el mensaje de la factura.
+// photoCaption identifica de qué factura es la foto reenviada.
+func photoCaption(inv invoice.Invoice) string {
+	parts := []string{"📷 Foto de la factura"}
+	if inv.Number != "" {
+		parts = append(parts, historyValue(inv.Number, maxNumberDisplayUTF16))
+	}
+	if inv.IssuerName != "" {
+		parts = append(parts, previewIssuer(inv.IssuerName))
+	}
+	if inv.Date != "" {
+		parts = append(parts, displayDate(inv.Date))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// sendSourcePhoto reenvía la foto o el PDF original citando el mensaje desde el que se pidió,
+// con un epígrafe que dice de qué factura es y un botón para volver a la lectura.
 func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	if rec.Source.FileID == "" {
 		h.answer(ctx, b, press.queryID, NoSourceAlert, true)
 		return
 	}
 	reply := &models.ReplyParameters{MessageID: press.messageID, AllowSendingWithoutReply: true}
+	caption := photoCaption(rec.Invoice)
+	keyboard := photoKeyboard(rec.ID, rec.Status == store.StatusDraft)
 	var err error
 	if rec.Source.MimeType == pdfMimeType {
 		_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
-			ChatID: press.chatID, Document: &models.InputFileString{Data: rec.Source.FileID}, ReplyParameters: reply,
+			ChatID: press.chatID, Document: &models.InputFileString{Data: rec.Source.FileID},
+			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
 		})
 	} else {
 		_, err = b.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID: press.chatID, Photo: &models.InputFileString{Data: rec.Source.FileID}, ReplyParameters: reply,
+			ChatID: press.chatID, Photo: &models.InputFileString{Data: rec.Source.FileID},
+			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
 		})
 	}
 	if err != nil {
@@ -55,6 +75,30 @@ func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonP
 		return
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventViewPhoto})
+	h.answer(ctx, b, press.queryID, "", false)
+}
+
+// showReading vuelve a mandar la lectura de la factura, citando la foto original, con los botones
+// que corresponden a su estado. Es el camino de vuelta desde la foto reenviada.
+func (h *handler) showReading(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
+	replyTo := photoOf(rec, press)
+	hasSource := rec.Source.FileID != ""
+	var (
+		text     string
+		keyboard *models.InlineKeyboardMarkup
+	)
+	if rec.Status == store.StatusSaved {
+		text = FormatInvoice(rec.Invoice, nil)
+		if rec.Invoice.CDC != "" {
+			text += "\n\n" + ElectronicNote
+		}
+		text += "\n\n" + SavedNote
+		keyboard = savedKeyboard(rec.ID, hasSource)
+	} else {
+		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice, invoice.Validate(rec.Invoice))
+		keyboard = reviewKeyboard(rec.ID, rec.Invoice, hasSource)
+	}
+	h.sendReply(ctx, b, press.chatID, replyTo, text, keyboard)
 	h.answer(ctx, b, press.queryID, "", false)
 }
 

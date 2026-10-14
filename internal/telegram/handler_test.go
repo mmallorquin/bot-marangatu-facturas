@@ -70,11 +70,12 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case method == "sendPhoto":
 		f.requests = append(f.requests, outgoing{
 			method: method, text: r.FormValue("caption"), fileName: r.FormValue("photo"), replyTo: r.FormValue("reply_parameters"),
+			markup: r.FormValue("reply_markup"),
 		})
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":12,"chat":{"id":42}}}`)
 		return
 	case method == "sendDocument":
-		sent := outgoing{method: method, text: r.FormValue("caption"), fileName: r.FormValue("document"), replyTo: r.FormValue("reply_parameters")}
+		sent := outgoing{method: method, text: r.FormValue("caption"), fileName: r.FormValue("document"), replyTo: r.FormValue("reply_parameters"), markup: r.FormValue("reply_markup")}
 		if r.MultipartForm == nil {
 			f.requests = append(f.requests, sent)
 			_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":11,"chat":{"id":42}}}`)
