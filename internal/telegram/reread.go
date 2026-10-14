@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -64,8 +65,14 @@ func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonP
 			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
 		})
 	} else {
+		// Si la foto llegó acostada o al revés, se manda enderezada para leerla cómodo en el celular.
+		// Si no se puede (formato, descarga), va la original tal cual.
+		var photo models.InputFile = &models.InputFileString{Data: rec.Source.FileID}
+		if rotated, ok := h.straightenedPhoto(ctx, b, press.chatID, rec.Source); ok {
+			photo = &models.InputFileUpload{Filename: "factura.jpg", Data: bytes.NewReader(rotated)}
+		}
 		_, err = b.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID: press.chatID, Photo: &models.InputFileString{Data: rec.Source.FileID},
+			ChatID: press.chatID, Photo: photo,
 			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
 		})
 	}
@@ -76,6 +83,24 @@ func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonP
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventViewPhoto})
 	h.answer(ctx, b, press.queryID, "", false)
+}
+
+// straightenedPhoto baja la foto y la gira según lo que informó el modelo al leerla.
+func (h *handler) straightenedPhoto(ctx context.Context, b *bot.Bot, chatID int64, source store.Source) ([]byte, bool) {
+	if source.Rotation == 0 {
+		return nil, false
+	}
+	data, err := downloadFile(ctx, b, source.FileID)
+	if err != nil {
+		h.logger.Warn("no se pudo bajar la foto para enderezarla", "chat_id", chatID, "error", Redact(err, h.deps.Token))
+		return nil, false
+	}
+	rotated, err := rotateImage(data, source.Rotation)
+	if err != nil {
+		h.logger.Warn("no se pudo enderezar la foto", "chat_id", chatID, "error", err)
+		return nil, false
+	}
+	return rotated, true
 }
 
 // showReading vuelve a mandar la lectura de la factura, citando la foto original, con los botones

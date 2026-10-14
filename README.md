@@ -156,6 +156,10 @@ Para revisarlas una por una antes de guardar: `/autoguardar no`.
 Cada lectura cita la foto que la generó (tocá la cita para ir a la foto) y lleva **📷 Ver foto**,
 también cuando ya está guardada o en el detalle de **Mis facturas**. La foto reenviada dice de qué
 factura es y tiene **📋 Ver lectura** para volver; en una pendiente, también **🔁 Releer**.
+Si la foto se sacó acostada o al revés, **Ver foto** la manda enderezada (el modelo informa la
+orientación al leerla), para mirarla cómodo en el celular.
+Después de **Guardar** o **Descartar**, si quedan facturas pendientes, el bot te muestra la
+siguiente con sus botones, sin que tengas que buscarla en el chat.
 En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las páginas y
 abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
 sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.

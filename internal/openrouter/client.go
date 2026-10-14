@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -243,13 +244,24 @@ func parseResult(body []byte) (reader.Result, error) {
 	if err := json.Unmarshal(content, &inv); err != nil {
 		return reader.Result{}, newReadError(reader.ErrorResponse, nil)
 	}
+	// La orientación no es parte de la factura: va aparte, y un valor raro se toma como "derecha".
+	var extra struct {
+		Rotation int `json:"orientacion"`
+	}
+	_ = json.Unmarshal(content, &extra)
+	if !slices.Contains(validRotations, extra.Rotation) {
+		extra.Rotation = 0
+	}
 	usage := reader.Usage{
 		InputTokens:     resp.Usage.PromptTokens,
 		OutputTokens:    resp.Usage.CompletionTokens,
 		ReasoningTokens: resp.Usage.CompletionTokensDetails.ReasoningTokens,
 	}
-	return reader.Result{Invoice: inv, Model: resp.Model, CostUSD: resp.Usage.Cost, Usage: usage}, nil
+	return reader.Result{Invoice: inv, Rotation: extra.Rotation, Model: resp.Model, CostUSD: resp.Usage.Cost, Usage: usage}, nil
 }
+
+// validRotations son los giros que el modelo puede pedir para enderezar la foto.
+var validRotations = []int{0, 90, 180, 270}
 
 // validateInvoiceJSON enforces the embedded response schema before decoding into
 // the Go struct, whose zero values would otherwise hide omitted or null fields.
@@ -335,7 +347,7 @@ func validateJSONSchema(value any, schema map[string]any) error {
 	if allowed, exists := schema["enum"].([]any); exists {
 		matched := false
 		for _, candidate := range allowed {
-			if candidate == value {
+			if enumMatches(candidate, value) {
 				matched = true
 				break
 			}
@@ -345,6 +357,21 @@ func validateJSONSchema(value any, schema map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// enumMatches compara un valor con una opción del enum. Los números del esquema llegan como float64
+// y los de la respuesta como json.Number, así que se comparan por valor.
+func enumMatches(candidate, value any) bool {
+	number, ok := value.(json.Number)
+	if !ok {
+		return candidate == value
+	}
+	expected, ok := candidate.(float64)
+	if !ok {
+		return false
+	}
+	actual, err := number.Float64()
+	return err == nil && actual == expected
 }
 
 func newReadError(kind reader.ErrorKind, cause error) *APIError {

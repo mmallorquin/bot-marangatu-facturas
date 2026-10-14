@@ -20,10 +20,11 @@ const FocusIdentity = "identidad"
 
 // Result es lo que devolvió el modelo, más datos para medir costo.
 type Result struct {
-	Invoice invoice.Invoice
-	Model   string  // modelo que respondió
-	CostUSD float64 // costo informado por el proveedor
-	Usage   Usage
+	Invoice  invoice.Invoice
+	Rotation int     // grados en sentido horario para que la foto quede derecha: 0, 90, 180 o 270
+	Model    string  // modelo que respondió
+	CostUSD  float64 // costo informado por el proveedor
+	Usage    Usage
 }
 
 // Usage son los tokens que consumió la lectura.

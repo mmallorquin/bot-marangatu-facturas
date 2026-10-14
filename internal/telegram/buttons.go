@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/go-telegram/bot"
@@ -177,7 +178,25 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventSaved, Detail: savedDetail(rec.Corrected)})
 		h.editText(ctx, b, press, FormatInvoice(rec.Invoice, nil)+"\n\n"+SavedNote, savedKeyboard(rec.ID, rec.Source.FileID != ""))
 		h.answer(ctx, b, press.queryID, SavedAnswer, false)
+		h.offerNextPending(ctx, b, press.chatID)
 	}
+}
+
+// offerNextPending muestra la pendiente más antigua que queda, con sus botones y citando su foto,
+// para seguir revisando sin buscarla en el chat. Si no queda ninguna, no dice nada.
+func (h *handler) offerNextPending(ctx context.Context, b *bot.Bot, chatID int64) {
+	drafts, err := h.deps.Store.Drafts(ctx, chatID)
+	if err != nil {
+		h.logger.Error("no se pudieron leer los pendientes", "chat_id", chatID, "error", err)
+		return
+	}
+	if len(drafts) == 0 {
+		return
+	}
+	next := drafts[0]
+	text, _ := h.invoiceMessage(ctx, chatID, next.Invoice, invoice.Validate(next.Invoice))
+	header := fmt.Sprintf(NextPendingHeader, plural(len(drafts), "queda", "quedan"), len(drafts))
+	h.sendReply(ctx, b, chatID, next.Source.MessageID, header+text, reviewKeyboard(next.ID, next.Invoice, next.Source.FileID != ""))
 }
 
 // undoAutoSave vuelve a borrador una factura guardada y muestra los botones de siempre.
@@ -218,6 +237,7 @@ func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPr
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventDiscarded})
 	h.editText(ctx, b, press, DiscardedMessage, noKeyboard())
 	h.answer(ctx, b, press.queryID, "", false)
+	h.offerNextPending(ctx, b, press.chatID)
 }
 
 func (h *handler) askForValue(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {

@@ -395,7 +395,7 @@ func TestDeleteChatClearsExportRequestsOnlyForThatChat(t *testing.T) {
 func TestDraftKeepsThePhotoReferenceAndRereads(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	src := Source{FileID: "f-1", MimeType: "image/jpeg", MessageID: 77}
+	src := Source{FileID: "f-1", MimeType: "image/jpeg", MessageID: 77, Rotation: 90}
 
 	id, err := s.CreateDraft(ctx, chatA, Draft{Invoice: sampleInvoice("001-001-0000001", 110_000), Model: "m", Source: src})
 	if err != nil {

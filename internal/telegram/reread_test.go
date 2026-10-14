@@ -1,7 +1,9 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
+	"image"
 	"strings"
 	"testing"
 	"time"
@@ -258,5 +260,43 @@ func TestViewPhotoIsOfferedAfterSavingByHandAndOnDuplicates(t *testing.T) {
 	h.press(callback{action: actionPhoto, id: 2})
 	if answers := h.telegram.byMethod("answerCallbackQuery"); answers[len(answers)-1].text != NoLongerEditableAlert {
 		t.Error("una descartada ya no ofrece la foto")
+	}
+}
+
+func TestViewPhotoSendsItStraightenedWhenTheModelSawItSideways(t *testing.T) {
+	// Arrange: la foto llegó acostada (hay que girarla 90°) y Telegram devuelve una imagen de 16x8.
+	h := newHarness(t)
+	h.telegram.fileBytes = tinyPNG(t)
+	h.reader.result.Rotation = 90
+	h.sendPhoto()
+
+	// Act
+	h.press(callback{action: actionPhoto, id: 1})
+
+	// Assert: sube un JPEG de 8x16 en vez de reenviar el file_id.
+	photos := h.telegram.byMethod("sendPhoto")
+	if len(photos) != 1 || photos[0].fileName != "factura.jpg" || len(photos[0].fileData) == 0 {
+		t.Fatalf("debería subir la foto enderezada: %+v", photos)
+	}
+	img, _, err := image.Decode(bytes.NewReader(photos[0].fileData))
+	if err != nil || img.Bounds().Dx() != 8 || img.Bounds().Dy() != 16 {
+		t.Errorf("foto enderezada: %v, %v", err, img)
+	}
+	if !strings.Contains(photos[0].text, "📷 Foto de la factura") || !strings.Contains(photos[0].markup, `"m:1"`) {
+		t.Errorf("conserva el epígrafe y los botones: %+v", photos[0])
+	}
+}
+
+func TestViewPhotoFallsBackToTheOriginalWhenItCannotStraightenIt(t *testing.T) {
+	// La descarga no es una imagen decodificable (por ejemplo WebP): va la original por file_id.
+	h := newHarness(t)
+	h.reader.result.Rotation = 180
+	h.sendPhoto()
+
+	h.press(callback{action: actionPhoto, id: 1})
+
+	photos := h.telegram.byMethod("sendPhoto")
+	if len(photos) != 1 || photos[0].fileName != "grande" || len(photos[0].fileData) != 0 {
+		t.Errorf("debería reenviar la original: %+v", photos)
 	}
 }
