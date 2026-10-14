@@ -40,6 +40,9 @@ func formatReport(m store.Metrics, days, excluded int, perUser bool) string {
 	line(&b, "Abandonadas (+24 h)", "%d", m.Abandoned)
 	line(&b, "Duplicadas", "%d", m.Duplicates)
 	line(&b, "Guardar bloqueado", "%d (datos que no cierran)", m.Blocked)
+	line(&b, "Campos con problemas al leer", "%s", formatCorrections(m.ReadIssueFields))
+	line(&b, "Campos que bloquearon guardar", "%s", formatCorrections(m.BlockedFields))
+	line(&b, "Ver foto / Releer", "%d / %d", m.PhotoViews, m.Rereads)
 
 	section(&b, "🎯 Revisión y correcciones")
 	line(&b, "Guardadas sin corregir", "%d de %d %s", m.SavedClean, m.Saved, pct(m.SavedClean, m.Saved))

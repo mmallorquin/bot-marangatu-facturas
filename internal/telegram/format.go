@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ func FormatInvoice(inv invoice.Invoice, issues []invoice.Issue) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(formatReview(inv.UncertainFields, issues))
+	b.WriteString(formatReview(inv.UncertainFields, append(slices.Clone(issues), invoice.Warnings(inv)...)))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "🧾 %s %s\n", truncateUTF16(labelOr(typeLabels, inv.Type, "Comprobante"), maxShortDisplayUTF16), truncateUTF16(inv.Number, maxNumberDisplayUTF16))
 	fmt.Fprintf(&b, "Emisor: %s\n", truncateUTF16(inv.IssuerName, maxIssuerDisplayUTF16))

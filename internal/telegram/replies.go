@@ -38,7 +38,19 @@ const (
 	AlreadySavedNote = "⚠️ Ya tenés guardada esta factura (mismo RUC, timbrado y número). Si es otra, corregí el número; si no, descartala."
 	ElectronicNote   = "ℹ️ Es una factura electrónica (tiene CDC): no va en el ZIP. Guardala igual para verla en tu /resumen. " +
 		"Obtenela en Marangatu y revisá su imputación: si no se imputó automáticamente, debés hacerlo allí."
-	DiscardedMessage      = "🗑️ Factura descartada."
+	DiscardedMessage = "🗑️ Factura descartada."
+	CDCClearedNote   = "🧾 Quité el CDC: se tratará como factura física y va a entrar en el ZIP. " +
+		"Si en realidad es electrónica, Marangatu ya la tiene y podría quedar duplicada."
+	RUCAppliedAnswer      = "✅ RUC corregido"
+	RUCFromCDCNote        = "🔎 Corregí el dígito verificador del RUC con el que figura en el CDC de la factura."
+	NoSourceAlert         = "No tengo la foto de esta factura (se leyó con una versión anterior). Mandala de nuevo si querés releerla."
+	PhotoGoneAlert        = "Telegram ya no tiene esa foto. Mandala de nuevo."
+	PhotoGoneMessage      = "😕 No pude volver a bajar la foto: Telegram ya no la tiene. Mandala de nuevo para releerla."
+	RereadingAnswer       = "⏳ Releyendo…"
+	RereadLimitAlert      = "Ya releí esta factura dos veces. Si sigue mal, corregí el campo a mano o sacá otra foto con más luz."
+	RereadSameMessage     = "🔁 Relectura %s: leyó lo mismo (RUC, timbrado, número, fecha y CDC). Si algo sigue mal, corregilo a mano o sacá otra foto."
+	NoRereadAlert         = "No hay una relectura para aplicar. Tocá Releer primero."
+	RereadAppliedAnswer   = "✅ Aplicado"
 	FixBeforeSavingAlert  = "⚠️ Corregí los datos marcados antes de guardar."
 	NoLongerEditableAlert = "Esta factura ya fue guardada o descartada."
 	NotSavedAnymoreAlert  = "Esa factura ya no está guardada."
@@ -71,6 +83,7 @@ var valueHints = map[string]string{
 	invoice.FieldNumber:    "ej. 001-001-0001234",
 	invoice.FieldDate:      "DD/MM/AAAA",
 	invoice.FieldCondition: "contado o crédito",
+	invoice.FieldCDC:       "44 dígitos, o \"no\" si la factura no es electrónica",
 }
 
 const amountHint = "solo números, ej. 150.000"

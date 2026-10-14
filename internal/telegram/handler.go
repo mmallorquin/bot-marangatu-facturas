@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -59,6 +61,7 @@ type InvoiceStore interface {
 	MarkExportDelivered(ctx context.Context, chatID int64, period, key string) error
 	CancelExport(ctx context.Context, chatID int64, period, key string) error
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
+	SaveReread(ctx context.Context, chatID, id int64, reread invoice.Invoice) error
 }
 
 // Deps son las dependencias del handler.
@@ -103,6 +106,10 @@ func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update)
 		if msg == nil || msg.Chat.Type != models.ChatTypePrivate || msg.Chat.ID <= 0 ||
 			(query.From.ID != 0 && query.From.ID != msg.Chat.ID) {
 			h.answer(ctx, b, query.ID, "Usá el bot desde tu chat privado.", true)
+			return
+		}
+		if strings.HasPrefix(query.Data, actionReread+":") {
+			h.handleRereadCallback(ctx, b, query, msg) // maneja su propio bloqueo: la IA tarda segundos
 			return
 		}
 		h.withChat(ctx, msg.Chat.ID, func(ctx context.Context) { h.handleCallback(ctx, b, query) })
@@ -163,7 +170,12 @@ func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *model
 		delete(c.reads, op)
 		c.mu.Unlock()
 	}()
-	h.processImage(ctx, b, msg.Chat.ID, file)
+	h.processImage(ctx, b, msg.Chat.ID, file, msg.ID)
+}
+
+// sourceOf es la referencia a la foto que se guarda con el borrador.
+func sourceOf(file imageFile, messageID int) store.Source {
+	return store.Source{FileID: file.fileID, MimeType: file.mimeType, MessageID: messageID}
 }
 
 func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text string) {
@@ -231,7 +243,8 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 }
 
 // processImage descarga la imagen, la lee con IA, la valida y la muestra con botones.
-func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, file imageFile) {
+// photoMessageID es el mensaje con la foto: la respuesta lo cita para que el usuario pueda volver a verla.
+func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, file imageFile, photoMessageID int) {
 	ctx, cancel := context.WithTimeout(ctx, processTimeout)
 	defer cancel()
 	select {
@@ -267,7 +280,9 @@ func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, fi
 		})
 		return
 	}
-	h.finishRead(ctx, func(ctx context.Context) { h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds()) })
+	h.finishRead(ctx, func(ctx context.Context) {
+		h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds(), sourceOf(file, photoMessageID))
+	})
 }
 
 // finishRead confirma que el usuario no borró datos durante la lectura y usa un
@@ -284,12 +299,17 @@ func (h *handler) finishRead(ctx context.Context, finish func(context.Context)) 
 	finish(ctx)
 }
 
-func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64, result reader.Result, seconds float64) {
+func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64, result reader.Result, seconds float64, source store.Source) {
+	photoMessageID := source.MessageID
 	inv := result.Invoice
 	// Se conserva el resultado del lector intacto para guardarlo como original.
 	inv.Number = invoice.NormalizeNumber(inv.Number)
+	inv, rucFromCDC := invoice.ReconcileRUCWithCDC(inv)
 	issues := invoice.Validate(inv)
 	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
+	for _, field := range problemFields(inv, issues) {
+		h.track(ctx, chatID, store.Event{Kind: store.EventReadIssue, Detail: field})
+	}
 	h.logger.Info("factura leída",
 		"chat_id", chatID,
 		"modelo", result.Model,
@@ -306,22 +326,47 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 		return
 	}
 
-	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: result.Invoice, Model: result.Model, CostUSD: result.CostUSD})
+	read := result.Invoice
+	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: inv, Original: &read, Model: result.Model, CostUSD: result.CostUSD, Source: source})
 	if err != nil {
 		h.logger.Error("no se pudo crear el borrador", "chat_id", chatID, "error", err)
-		h.send(ctx, b, chatID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
+		h.sendReply(ctx, b, chatID, photoMessageID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	if rucFromCDC {
+		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
+		text += "\n\n" + RUCFromCDCNote
+	}
 	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
-			h.send(ctx, b, chatID, text+"\n\n"+AutoSavedNote, undoKeyboard(id))
+			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, undoKeyboard(id))
 			return
 		}
 		// Si falla el guardado automático, queda como borrador con los botones de siempre.
 	}
-	h.send(ctx, b, chatID, text, mainKeyboard(id))
+	h.sendReply(ctx, b, chatID, photoMessageID, text, reviewKeyboard(id, inv, source.FileID != ""))
+}
+
+// problemFields son los campos con problemas, avisos o dudas de una lectura, sin repetir.
+func problemFields(inv invoice.Invoice, issues []invoice.Issue) []string {
+	var fields []string
+	add := func(field string) {
+		if field != "" && !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+	for _, issue := range issues {
+		add(issue.Field)
+	}
+	for _, w := range invoice.Warnings(inv) {
+		add(w.Field)
+	}
+	for _, field := range inv.UncertainFields {
+		add(field)
+	}
+	return fields
 }
 
 func (h *handler) autoSaves(ctx context.Context, chatID int64) bool {
@@ -370,7 +415,7 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
 	message, _ := h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited))
-	h.send(ctx, b, chatID, message, mainKeyboard(rec.ID))
+	h.send(ctx, b, chatID, message, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
@@ -448,9 +493,18 @@ func (h *handler) track(ctx context.Context, chatID int64, e store.Event) {
 
 // send envía un mensaje; keyboard puede ser nil.
 func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text string, keyboard *models.InlineKeyboardMarkup) error {
+	return h.sendReply(ctx, b, chatID, 0, text, keyboard)
+}
+
+// sendReply envía un mensaje citando otro (replyTo > 0): el usuario toca la cita y vuelve a la foto.
+// Si el mensaje citado ya no existe, Telegram manda el mensaje igual, sin la cita.
+func (h *handler) sendReply(ctx context.Context, b *bot.Bot, chatID int64, replyTo int, text string, keyboard *models.InlineKeyboardMarkup) error {
 	params := &bot.SendMessageParams{ChatID: chatID, Text: telegramMessageText(text)}
 	if keyboard != nil {
 		params.ReplyMarkup = keyboard
+	}
+	if replyTo > 0 {
+		params.ReplyParameters = &models.ReplyParameters{MessageID: replyTo, AllowSendingWithoutReply: true}
 	}
 	_, err := b.SendMessage(ctx, params)
 	if err != nil {

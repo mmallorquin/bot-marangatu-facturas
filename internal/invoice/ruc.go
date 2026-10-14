@@ -60,3 +60,19 @@ func ValidateRUC(ruc string) error {
 	}
 	return nil
 }
+
+// SuggestRUC devuelve el RUC con el dígito verificador calculado cuando la base tiene formato
+// válido y solo el dígito está mal. No lo aplica: la base también puede estar mal leída
+// (un 8 por un 3) y el dígito calculado taparía ese error. Quien decide es el usuario, mirando la factura.
+func SuggestRUC(ruc string) (string, bool) {
+	match := rucPattern.FindStringSubmatch(strings.ToUpper(strings.TrimSpace(ruc)))
+	if match == nil {
+		return "", false
+	}
+	base, got := match[1], int(match[2][0]-'0')
+	want := CheckDigit(base)
+	if got == want {
+		return "", false
+	}
+	return fmt.Sprintf("%s-%d", base, want), true
+}

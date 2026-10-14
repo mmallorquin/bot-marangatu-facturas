@@ -269,7 +269,9 @@ go test -race -cover ./...
 
 - Nunca subas tu `.env`, tokens ni fotos de facturas reales al repositorio (ya están en `.gitignore`).
 - Para capturas y demos, usá facturas de prueba o tapá RUC, nombres y montos.
-- Las fotos no se guardan: se descargan en memoria, se envían al modelo y se descartan.
+- Las fotos no se guardan: se descargan en memoria, se envían al modelo y se descartan. El bot conserva
+  solo el identificador del archivo en Telegram (`file_id`), para que con **Ver foto** y **Releer** puedas
+  volver a verla o pedir una segunda lectura. Se borra junto con la factura y con `/borrar_mis_datos`.
 - Cada pedido a OpenRouter va con `data_collection: "deny"` y, por defecto, `zdr: true`:
   solo se usan proveedores que no guardan ni entrenan con tus facturas.
 

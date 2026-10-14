@@ -238,7 +238,7 @@ func (h *handler) handleHistoryCallback(ctx context.Context, b *bot.Bot, query *
 		return
 	}
 	text := FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))
-	keyboard := mainKeyboard(c.id)
+	keyboard := reviewKeyboard(c.id, rec.Invoice, rec.Source.FileID != "")
 	if c.tab == "s" {
 		if rec.Invoice.CDC != "" {
 			text += "\n\n" + ElectronicNote

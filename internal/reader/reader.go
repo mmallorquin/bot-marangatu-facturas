@@ -12,7 +12,11 @@ import (
 type Image struct {
 	Data     []byte
 	MimeType string // image/jpeg, image/png, image/webp o application/pdf
+	Focus    string // vacío = lectura completa; FocusIdentity = relectura enfocada en RUC, número y CDC
 }
+
+// FocusIdentity pide una segunda pasada concentrada en los datos que identifican la factura.
+const FocusIdentity = "identidad"
 
 // Result es lo que devolvió el modelo, más datos para medir costo.
 type Result struct {

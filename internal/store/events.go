@@ -13,45 +13,50 @@ import (
 
 // Tipos de evento. Sirven para medir cómo se usa el bot durante la beta.
 const (
-	EventStart           = "start"
-	EventPhoto           = "foto"           // llegó una imagen o PDF que el bot puede leer; detalle: imagen | pdf
-	EventPhotoRejected   = "foto_rechazada" // detalle: formato | tamano
-	EventRead            = "lectura"        // detalle: ok | avisos
-	EventNotInvoice      = "no_factura"     // la IA dijo que la imagen no es un comprobante
-	EventReadError       = "lectura_error"  // detalle: descarga | ia
-	EventSaved           = "guardada"       // detalle: corregida | sin_corregir
-	EventDuplicate       = "duplicada"      // quiso guardar una factura que ya tenía
-	EventSaveBlocked     = "guardar_bloqueado"
-	EventDiscarded       = "descartada"
-	EventUndo            = "deshecha" // tocó Deshacer en una factura guardada automáticamente
-	EventAutoSave        = "autoguardar"
-	EventReminder        = "recordatorio" // el bot recordó exportar; detalle: mensual | anual
-	EventReminderSetting = "recordatorios"
-	EventList            = "facturas"            // usó /facturas
-	EventPending         = "pendientes"          // usó /pendientes
-	EventDeleted         = "borrada"             // sacó una factura ya guardada
-	EventCorrection      = "correccion"          // detalle: campo corregido
-	EventBadCorrection   = "correccion_invalida" // detalle: campo
-	EventCancel          = "cancelar"
-	EventSummary         = "resumen"
-	EventRUC             = "ruc"
-	EventImpute          = "imputar"
-	EventExportPreview   = "exportar_previa"
-	EventExportReview    = "exportar_revision" // detalle: csv | excel
-	EventExportZIP       = "exportar_zip"
-	EventUnknownText     = "texto_no_entendido"
-	EventDetailCorrected = "corregida"
-	EventDetailClean     = "sin_corregir"
-	EventDetailIssues    = "avisos"
-	EventDetailOK        = "ok"
-	EventDetailDownload  = "descarga"
-	EventDetailAI        = "ia"
-	EventDetailFormat    = "formato"
-	EventDetailSize      = "tamano"
-	EventDetailCSV       = "csv"
-	EventDetailExcel     = "excel"
-	EventDetailImage     = "imagen"
-	EventDetailPDF       = "pdf"
+	EventStart            = "start"
+	EventPhoto            = "foto"           // llegó una imagen o PDF que el bot puede leer; detalle: imagen | pdf
+	EventPhotoRejected    = "foto_rechazada" // detalle: formato | tamano
+	EventRead             = "lectura"        // detalle: ok | avisos
+	EventNotInvoice       = "no_factura"     // la IA dijo que la imagen no es un comprobante
+	EventReadError        = "lectura_error"  // detalle: descarga | ia
+	EventSaved            = "guardada"       // detalle: corregida | sin_corregir
+	EventDuplicate        = "duplicada"      // quiso guardar una factura que ya tenía
+	EventSaveBlocked      = "guardar_bloqueado"
+	EventReadIssue        = "lectura_problema" // un campo con problema o aviso al leer; detalle: campo
+	EventBlockedField     = "campo_bloqueante" // un campo que impidió guardar; detalle: campo
+	EventReread           = "relectura"        // el usuario pidió releer la foto; lleva costo y segundos
+	EventViewPhoto        = "ver_foto"         // el usuario pidió ver la foto original
+	EventDiscarded        = "descartada"
+	EventUndo             = "deshecha" // tocó Deshacer en una factura guardada automáticamente
+	EventAutoSave         = "autoguardar"
+	EventReminder         = "recordatorio" // el bot recordó exportar; detalle: mensual | anual
+	EventReminderSetting  = "recordatorios"
+	EventList             = "facturas"            // usó /facturas
+	EventPending          = "pendientes"          // usó /pendientes
+	EventDeleted          = "borrada"             // sacó una factura ya guardada
+	EventCorrection       = "correccion"          // detalle: campo corregido
+	EventBadCorrection    = "correccion_invalida" // detalle: campo
+	EventCancel           = "cancelar"
+	EventSummary          = "resumen"
+	EventRUC              = "ruc"
+	EventImpute           = "imputar"
+	EventExportPreview    = "exportar_previa"
+	EventExportReview     = "exportar_revision" // detalle: csv | excel
+	EventExportZIP        = "exportar_zip"
+	EventUnknownText      = "texto_no_entendido"
+	EventDetailCorrected  = "corregida"
+	EventDetailClean      = "sin_corregir"
+	EventDetailIssues     = "avisos"
+	EventDetailOK         = "ok"
+	EventDetailDownload   = "descarga"
+	EventDetailAI         = "ia"
+	EventDetailFormat     = "formato"
+	EventDetailSize       = "tamano"
+	EventDetailCSV        = "csv"
+	EventDetailExcel      = "excel"
+	EventDetailImage      = "imagen"
+	EventDetailPDF        = "pdf"
+	EventDetailRUCFromCDC = "ruc_segun_cdc" // el bot corrigió el DV del RUC porque el CDC lo confirmó
 )
 
 // Un borrador sin guardar ni descartar después de este tiempo se cuenta como abandonado.
@@ -126,7 +131,12 @@ type Metrics struct {
 	Deleted    int // guardadas que después se borraron con /facturas
 	Duplicates int
 	Blocked    int // intentos de guardar con datos que no cierran
-	Abandoned  int // borradores del período sin guardar ni descartar después de 24 h
+	// Campos con problemas al leer y campos que bloquearon un guardado, de más a menos frecuente.
+	ReadIssueFields []FieldCount
+	BlockedFields   []FieldCount
+	Rereads         int // relecturas pedidas (su costo ya está sumado en CostUSD)
+	PhotoViews      int
+	Abandoned       int // borradores del período sin guardar ni descartar después de 24 h
 
 	// Correcciones
 	Corrections    []FieldCount // de más a menos corregido
@@ -265,12 +275,14 @@ func (s *Store) countEvents(ctx context.Context, sc scope, from string, m *Metri
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("contando eventos: %w", err)
 	}
-	slices.SortFunc(m.Corrections, func(a, b FieldCount) int {
-		if a.Count != b.Count {
-			return b.Count - a.Count
-		}
-		return strings.Compare(a.Field, b.Field)
-	})
+	for _, counts := range []*[]FieldCount{&m.Corrections, &m.ReadIssueFields, &m.BlockedFields} {
+		slices.SortFunc(*counts, func(a, b FieldCount) int {
+			if a.Count != b.Count {
+				return b.Count - a.Count
+			}
+			return strings.Compare(a.Field, b.Field)
+		})
+	}
 	return nil
 }
 
@@ -308,6 +320,14 @@ func addEvent(m *Metrics, kind, detail string, count int) {
 		m.Duplicates += count
 	case EventSaveBlocked:
 		m.Blocked += count
+	case EventReadIssue:
+		m.ReadIssueFields = append(m.ReadIssueFields, FieldCount{Field: detail, Count: count})
+	case EventBlockedField:
+		m.BlockedFields = append(m.BlockedFields, FieldCount{Field: detail, Count: count})
+	case EventReread:
+		m.Rereads += count
+	case EventViewPhoto:
+		m.PhotoViews += count
 	case EventCorrection:
 		m.Corrections = append(m.Corrections, FieldCount{Field: detail, Count: count})
 	case EventBadCorrection:

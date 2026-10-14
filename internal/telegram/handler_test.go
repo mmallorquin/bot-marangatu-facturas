@@ -36,6 +36,8 @@ type outgoing struct {
 
 	fileName string // solo sendDocument
 	fileData []byte
+
+	replyTo string // reply_parameters en JSON, si el mensaje cita a otro
 }
 
 // fakeTelegram simula la API de Telegram: mensajes, ediciones, botones, getFile y descarga.
@@ -65,8 +67,19 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_id":"x","file_path":"photos/factura.jpg"}}`)
 		return
+	case method == "sendPhoto":
+		f.requests = append(f.requests, outgoing{
+			method: method, text: r.FormValue("caption"), fileName: r.FormValue("photo"), replyTo: r.FormValue("reply_parameters"),
+		})
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":12,"chat":{"id":42}}}`)
+		return
 	case method == "sendDocument":
-		sent := outgoing{method: method, text: r.FormValue("caption")}
+		sent := outgoing{method: method, text: r.FormValue("caption"), fileName: r.FormValue("document"), replyTo: r.FormValue("reply_parameters")}
+		if r.MultipartForm == nil {
+			f.requests = append(f.requests, sent)
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":11,"chat":{"id":42}}}`)
+			return
+		}
 		if files := r.MultipartForm.File["document"]; len(files) == 1 {
 			sent.fileName = files[0].Filename
 			if file, err := files[0].Open(); err == nil {
@@ -83,7 +96,9 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f.requests = append(f.requests, outgoing{method: method, text: r.FormValue("text"), markup: r.FormValue("reply_markup")})
+	f.requests = append(f.requests, outgoing{
+		method: method, text: r.FormValue("text"), markup: r.FormValue("reply_markup"), replyTo: r.FormValue("reply_parameters"),
+	})
 	_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":10,"chat":{"id":42}}}`)
 }
 
@@ -171,6 +186,7 @@ func (h *harness) sendPhoto() {
 
 func photoUpdate() *models.Update {
 	return &models.Update{Message: &models.Message{
+		ID:   77,
 		Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate},
 		Photo: []models.PhotoSize{
 			{FileID: "chica", Width: 90, Height: 120},

@@ -122,9 +122,19 @@ CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
 
 // Draft es una factura recién leída.
 type Draft struct {
-	Invoice invoice.Invoice
-	Model   string
-	CostUSD float64
+	Invoice  invoice.Invoice
+	Original *invoice.Invoice // lo que leyó la IA, si Invoice ya tiene correcciones automáticas
+	Model    string
+	CostUSD  float64
+	Source   Source
+}
+
+// Source es la referencia a la foto o PDF en Telegram. No es la imagen: solo permite
+// reenviarla o volver a bajarla con el mismo bot mientras el archivo exista en Telegram.
+type Source struct {
+	FileID    string
+	MimeType  string
+	MessageID int // mensaje del chat que trae la foto, para citarlo
 }
 
 // Record es una factura guardada en la base.
@@ -137,6 +147,9 @@ type Record struct {
 	Model     string
 	CostUSD   float64
 	Corrected bool
+	Source    Source
+	Rereads   int              // relecturas ya pedidas
+	Reread    *invoice.Invoice // última relectura, si hubo
 }
 
 // Pending es la corrección que el chat está esperando.
@@ -197,6 +210,12 @@ var addedColumns = []struct{ table, column, definition string }{
 	{"chat_settings", "pending_export", "TEXT NOT NULL DEFAULT ''"}, // retomar el período tras configurar
 	{"chat_settings", "ruc_setup_key", "TEXT NOT NULL DEFAULT ''"},  // invalidar Cancelar de configuraciones anteriores
 	{"export_requests", "revision", "TEXT NOT NULL DEFAULT ''"},     // datos entregados, para la marca manual
+	// Referencia a la foto en Telegram (no la imagen), para volver a verla o releerla.
+	{"invoices", "source_file_id", "TEXT NOT NULL DEFAULT ''"},
+	{"invoices", "source_mime", "TEXT NOT NULL DEFAULT ''"},
+	{"invoices", "source_message_id", "INTEGER NOT NULL DEFAULT 0"},
+	{"invoices", "rereads", "INTEGER NOT NULL DEFAULT 0"},   // relecturas pedidas por el usuario
+	{"invoices", "reread_json", "TEXT NOT NULL DEFAULT ''"}, // última relectura, para adoptar sus campos
 }
 
 func migrate(db *sql.DB) error {
@@ -306,7 +325,11 @@ func (s *Store) Close() error {
 
 // CreateDraft guarda una factura recién leída y devuelve su ID.
 func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, error) {
-	original, err := json.Marshal(d.Invoice)
+	read := d.Invoice
+	if d.Original != nil {
+		read = *d.Original
+	}
+	original, err := json.Marshal(read)
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura: %w", err)
 	}
@@ -317,9 +340,11 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 	}
 	now := timestamp()
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		chatID, StatusDraft, data, original, d.Model, d.CostUSD, now, now)
+		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at,
+			source_file_id, source_mime, source_message_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chatID, StatusDraft, data, original, d.Model, d.CostUSD, now, now,
+		d.Source.FileID, d.Source.MimeType, d.Source.MessageID)
 	if err != nil {
 		return 0, fmt.Errorf("guardando el borrador: %w", err)
 	}
@@ -329,13 +354,15 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 // Get devuelve una factura del chat.
 func (s *Store) Get(ctx context.Context, chatID, id int64) (Record, error) {
 	var (
-		rec                     Record
-		invoiceJSON, originJSON string
+		rec                                 Record
+		invoiceJSON, originJSON, rereadJSON string
 	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, chat_id, status, invoice_json, original_json, model, cost_usd, corrected
+		SELECT id, chat_id, status, invoice_json, original_json, model, cost_usd, corrected,
+			source_file_id, source_mime, source_message_id, rereads, reread_json
 		FROM invoices WHERE id = ? AND chat_id = ?`, id, chatID).
-		Scan(&rec.ID, &rec.ChatID, &rec.Status, &invoiceJSON, &originJSON, &rec.Model, &rec.CostUSD, &rec.Corrected)
+		Scan(&rec.ID, &rec.ChatID, &rec.Status, &invoiceJSON, &originJSON, &rec.Model, &rec.CostUSD, &rec.Corrected,
+			&rec.Source.FileID, &rec.Source.MimeType, &rec.Source.MessageID, &rec.Rereads, &rereadJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, ErrNotFound
 	}
@@ -347,6 +374,13 @@ func (s *Store) Get(ctx context.Context, chatID, id int64) (Record, error) {
 	}
 	if err := json.Unmarshal([]byte(originJSON), &rec.Original); err != nil {
 		return Record{}, fmt.Errorf("leyendo la lectura original: %w", err)
+	}
+	if rereadJSON != "" {
+		var reread invoice.Invoice
+		if err := json.Unmarshal([]byte(rereadJSON), &reread); err != nil {
+			return Record{}, fmt.Errorf("leyendo la relectura: %w", err)
+		}
+		rec.Reread = &reread
 	}
 	// También permite revisar facturas creadas antes de la normalización.
 	rec.Invoice = normalizeInvoiceIdentity(rec.Invoice)
@@ -363,6 +397,20 @@ func (s *Store) UpdateInvoice(ctx context.Context, chatID, id int64, inv invoice
 	return s.inDraftTx(ctx, chatID, id, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
 			UPDATE invoices SET invoice_json = ?, corrected = 1, updated_at = ? WHERE id = ?`,
+			data, timestamp(), id)
+		return err
+	})
+}
+
+// SaveReread guarda la última relectura de un borrador y cuenta una relectura más.
+func (s *Store) SaveReread(ctx context.Context, chatID, id int64, reread invoice.Invoice) error {
+	data, err := json.Marshal(reread)
+	if err != nil {
+		return fmt.Errorf("serializando la relectura: %w", err)
+	}
+	return s.inDraftTx(ctx, chatID, id, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE invoices SET rereads = rereads + 1, reread_json = ?, updated_at = ? WHERE id = ?`,
 			data, timestamp(), id)
 		return err
 	})
