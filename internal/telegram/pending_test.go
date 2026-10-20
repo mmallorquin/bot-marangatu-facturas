@@ -7,7 +7,7 @@ import (
 )
 
 func (h *harness) sendAlbumPhoto(groupID string) {
-	update := photoUpdate()
+	update := h.nextPhoto()
 	update.Message.MediaGroupID = groupID
 	h.send(update)
 }

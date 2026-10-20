@@ -16,7 +16,7 @@ import (
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
 )
 
-// Tiempo máximo para descargar y leer una factura.
+// Tiempo máximo para descargar y leer una factura, sin contar la espera de turno.
 const processTimeout = 2 * time.Minute
 
 // Tiempo máximo para registrar un evento de uso.
@@ -62,6 +62,12 @@ type InvoiceStore interface {
 	CancelExport(ctx context.Context, chatID int64, period, key string) error
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 	SaveReread(ctx context.Context, chatID, id int64, reread invoice.Invoice) error
+	EnqueueJob(ctx context.Context, j store.Job) (store.Job, bool, error)
+	AdvanceJob(ctx context.Context, chatID, id int64, from, to store.JobState) error
+	RetryJob(ctx context.Context, chatID, id int64) (store.Job, error)
+	Jobs(ctx context.Context, chatID int64, limit int) ([]store.Job, error)
+	RecoverJobs(ctx context.Context) (requeued, uncertain []store.Job, err error)
+	PruneJobs(ctx context.Context, maxAge time.Duration) error
 }
 
 // Deps son las dependencias del handler.
@@ -72,6 +78,9 @@ type Deps struct {
 	Store      InvoiceStore
 	Now        func() time.Time // reloj; en tests se fija una fecha
 	Operations *ChatOperations  // compartido con los recordatorios
+	// ReadTimeout es el plazo para descargar y leer un archivo, desde que tiene un lector libre.
+	// Vacío, vale processTimeout.
+	ReadTimeout time.Duration
 }
 
 // NewHandler devuelve el handler que responde a mensajes y botones.
@@ -106,6 +115,10 @@ func (h *handler) handle(ctx context.Context, b *bot.Bot, update *models.Update)
 		if msg == nil || msg.Chat.Type != models.ChatTypePrivate || msg.Chat.ID <= 0 ||
 			(query.From.ID != 0 && query.From.ID != msg.Chat.ID) {
 			h.answer(ctx, b, query.ID, "Usá el bot desde tu chat privado.", true)
+			return
+		}
+		if strings.HasPrefix(query.Data, retryJobCallback+":") {
+			h.handleRetryJobCallback(ctx, b, query, msg) // maneja su propio bloqueo: la lectura tarda segundos
 			return
 		}
 		if strings.HasPrefix(query.Data, actionReread+":") {
@@ -148,10 +161,18 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *models.Message, file imageFile) {
 	c := h.deps.Operations.chat(msg.Chat.ID)
 	c.mu.Lock()
-	ctx = operationContext(ctx, c)
-	op := currentOperation(ctx)
-	ctx, cancel := context.WithCancel(ctx)
-	c.reads[op] = cancel
+	job, created, err := h.deps.Store.EnqueueJob(ctx, jobOf(msg, file))
+	if err != nil {
+		c.mu.Unlock()
+		h.logger.Error("no se pudo anotar el archivo", "chat_id", msg.Chat.ID, "error", err)
+		h.send(ctx, b, msg.Chat.ID, StoreErrorMessage, nil)
+		return
+	}
+	if !created { // Telegram entregó dos veces el mismo mensaje: ya está anotado
+		c.mu.Unlock()
+		return
+	}
+	ctx, done := beginRead(ctx, c)
 	detail := store.EventDetailImage
 	if file.mimeType == pdfMimeType {
 		detail = store.EventDetailPDF
@@ -164,18 +185,8 @@ func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *model
 		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, ReadingAlbumMessage, nil)
 	}
 	c.mu.Unlock()
-	defer func() {
-		cancel()
-		c.mu.Lock()
-		delete(c.reads, op)
-		c.mu.Unlock()
-	}()
-	h.processImage(ctx, b, msg.Chat.ID, file, msg.ID)
-}
-
-// sourceOf es la referencia a la foto que se guarda con el borrador.
-func sourceOf(file imageFile, messageID, rotation int) store.Source {
-	return store.Source{FileID: file.fileID, MimeType: file.mimeType, MessageID: messageID, Rotation: rotation}
+	defer done()
+	h.processJob(ctx, b, job)
 }
 
 func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text string) {
@@ -225,6 +236,9 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 	case deleteDataCommand:
 		h.askDeleteData(ctx, b, chatID)
 		return
+	case statusCommand:
+		h.showStatus(ctx, b, chatID)
+		return
 	}
 
 	pending, found, err := h.deps.Store.Awaiting(ctx, chatID)
@@ -242,49 +256,6 @@ func (h *handler) handleText(ctx context.Context, b *bot.Bot, chatID int64, text
 	h.applyCorrection(ctx, b, chatID, pending, text)
 }
 
-// processImage descarga la imagen, la lee con IA, la valida y la muestra con botones.
-// photoMessageID es el mensaje con la foto: la respuesta lo cita para que el usuario pueda volver a verla.
-func (h *handler) processImage(ctx context.Context, b *bot.Bot, chatID int64, file imageFile, photoMessageID int) {
-	ctx, cancel := context.WithTimeout(ctx, processTimeout)
-	defer cancel()
-	select {
-	case h.deps.Operations.reads <- struct{}{}:
-		defer func() { <-h.deps.Operations.reads }()
-	case <-ctx.Done():
-		h.finishRead(ctx, func(ctx context.Context) {
-			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.sendReply(ctx, b, chatID, photoMessageID, ReadErrorMessage, nil)
-		})
-		return
-	}
-
-	data, err := downloadFile(ctx, b, file.fileID)
-	if err != nil {
-		h.finishRead(ctx, func(ctx context.Context) {
-			h.logger.Error("no se pudo descargar la imagen", "chat_id", chatID, "error", Redact(err, h.deps.Token))
-			h.track(ctx, chatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.sendReply(ctx, b, chatID, photoMessageID, ReadErrorMessage, nil)
-		})
-		return
-	}
-
-	start := time.Now()
-	result, err := h.deps.Reader.Read(ctx, reader.Image{Data: data, MimeType: file.mimeType})
-	if err != nil {
-		h.finishRead(ctx, func(ctx context.Context) {
-			h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
-			h.track(ctx, chatID, store.Event{
-				Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
-			})
-			h.sendReply(ctx, b, chatID, photoMessageID, readFailureMessage(err), nil)
-		})
-		return
-	}
-	h.finishRead(ctx, func(ctx context.Context) {
-		h.showReadInvoice(ctx, b, chatID, result, time.Since(start).Seconds(), sourceOf(file, photoMessageID, result.Rotation))
-	})
-}
-
 // finishRead confirma que el usuario no borró datos durante la lectura y usa un
 // plazo nuevo para guardar/responder, aunque haya vencido el plazo de la IA.
 func (h *handler) finishRead(ctx context.Context, finish func(context.Context)) {
@@ -299,7 +270,9 @@ func (h *handler) finishRead(ctx context.Context, finish func(context.Context)) 
 	finish(ctx)
 }
 
-func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64, result reader.Result, seconds float64, source store.Source) {
+func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job, result reader.Result, seconds float64) {
+	chatID := job.ChatID
+	source := sourceOf(job, result.Rotation)
 	photoMessageID := source.MessageID
 	inv := result.Invoice
 	// Se conserva el resultado del lector intacto para guardarlo como original.
@@ -322,14 +295,23 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, chatID int64,
 		"problemas", len(issues),
 	)
 	if !inv.IsInvoice {
+		if err := h.deps.Store.AdvanceJob(ctx, chatID, job.ID, store.JobReading, store.JobDone); err != nil {
+			h.logger.Warn("no se pudo cerrar el archivo", "chat_id", chatID, "error", err)
+		}
 		h.sendReply(ctx, b, chatID, photoMessageID, NotInvoiceMessage, nil)
 		return
 	}
 
 	read := result.Invoice
-	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{Invoice: inv, Original: &read, Model: result.Model, CostUSD: result.CostUSD, Source: source})
+	id, err := h.deps.Store.CreateDraft(ctx, chatID, store.Draft{
+		Invoice: inv, Original: &read, Model: result.Model, CostUSD: result.CostUSD, Source: source, JobID: job.ID,
+	})
+	if errors.Is(err, store.ErrJobGone) {
+		return // el usuario borró sus datos durante la lectura: no se reconstruye nada
+	}
 	if err != nil {
 		h.logger.Error("no se pudo crear el borrador", "chat_id", chatID, "error", err)
+		h.failJobQuietly(ctx, job, store.JobReading, store.JobFailedRead)
 		h.sendReply(ctx, b, chatID, photoMessageID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}

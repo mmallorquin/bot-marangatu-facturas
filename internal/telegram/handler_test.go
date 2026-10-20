@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -142,12 +143,15 @@ func (f *fakeTelegram) lastSent(t *testing.T) outgoing {
 
 // fakeReader devuelve un resultado fijo y guarda las imágenes recibidas.
 type fakeReader struct {
+	mu       sync.Mutex // varias lecturas pueden correr a la vez
 	result   reader.Result
 	err      error
 	received []reader.Image
 }
 
 func (f *fakeReader) Read(_ context.Context, img reader.Image) (reader.Result, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.received = append(f.received, img)
 	return f.result, f.err
 }
@@ -159,6 +163,7 @@ type harness struct {
 	store    *store.Store
 	reader   *fakeReader
 	handle   bot.HandlerFunc
+	photos   atomic.Int64 // cuántas fotos mandó: cada una es un mensaje distinto
 }
 
 func newHarness(t *testing.T) *harness {
@@ -201,7 +206,14 @@ func (h *harness) sendText(text string) {
 }
 
 func (h *harness) sendPhoto() {
-	h.send(photoUpdate())
+	h.send(h.nextPhoto())
+}
+
+// nextPhoto es una foto de un mensaje nuevo: repetir el mismo mensaje sería la misma entrega.
+func (h *harness) nextPhoto() *models.Update {
+	update := photoUpdate()
+	update.Message.ID += int(h.photos.Add(1) - 1)
+	return update
 }
 
 func photoUpdate() *models.Update {
@@ -473,8 +485,8 @@ func TestDownloadErrorSkipsTheReader(t *testing.T) {
 
 	h.sendPhoto()
 
-	if len(h.reader.received) != 0 || h.telegram.lastSent(t).text != ReadErrorMessage {
-		t.Errorf("lector llamado %d veces", len(h.reader.received))
+	if len(h.reader.received) != 0 || h.telegram.lastSent(t).text != DownloadErrorMessage {
+		t.Errorf("lector llamado %d veces, respuesta %q", len(h.reader.received), h.telegram.lastSent(t).text)
 	}
 }
 

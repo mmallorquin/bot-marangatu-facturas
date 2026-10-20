@@ -164,6 +164,11 @@ En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las p
 abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
 sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.
 
+Cada foto o PDF se anota en la base antes de descargarse, así que no se pierde si el bot se reinicia:
+los que estaban en espera siguen solos y un mismo mensaje entregado dos veces se lee una sola vez.
+Si el reinicio cortó una lectura, el bot avisa que no sabe si se llegó a cobrar y no la repite solo:
+con **Reintentar este archivo** (o desde `/estado`) decidís vos. Borrar tus datos también cancela los archivos en cola.
+
 Al recibir el ZIP aparece **Ya presenté en Marangatu**. Tocá esa opción únicamente
 después de confirmar el período en Marangatu y obtener el Talón. La marca es manual;
 si cambian las facturas o los ajustes, la previa advierte que esa confirmación corresponde a datos anteriores.
@@ -184,6 +189,7 @@ si cambian las facturas o los ajustes, la previa advierte que esa confirmación 
 | `/registro` | Consulta o elige con botones la obligación 955 mensual o 956 anual |
 | `/registro 955` / `956` | Configura la obligación que corresponda a tu RUC |
 | `/pendientes` | Cuenta las facturas leídas sin guardar y guarda de una vez las que cierran |
+| `/estado` | Cuántos archivos recibiste (listos, en espera, con error) y botón para reintentar los que fallaron |
 | `/autoguardar si` / `no` | Guardar solas las facturas que cierran (viene activado) |
 | `/recordatorios si` / `no` | Aviso de exportar según `/registro`: desde el día 3 por el mes anterior (955) o el 15 de enero por el año anterior (956); no es un vencimiento oficial |
 | `/cancelar` | Cancela una corrección a medias |

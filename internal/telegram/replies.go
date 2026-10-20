@@ -19,6 +19,7 @@ const (
 		"/facturas — pendientes, guardadas y totales. Abrí una factura para revisarla o corregirla, y usá las flechas para ver otros meses o años.\n" +
 		"/exportar — elegí un período, revisá el resumen y descargá ZIP, CSV o Excel.\n" +
 		"/ajustes — tu RUC, impuestos, registro 955/956, guardado automático, recordatorios y borrado de datos.\n" +
+		"/estado — cuántos archivos recibí, cuáles están en espera o con error, y reintentarlos.\n" +
 		"/cancelar — salir de una corrección o configuración.\n\n" +
 		"Los comandos anteriores siguen disponibles: /resumen, /pendientes, /ruc, /imputar, /registro, /autoguardar, /recordatorios y /borrar_mis_datos.\n\n" +
 		"El bot no presenta tus registros ante la DNIT.\n" + presentationHint + "\n" + retentionHint
@@ -149,14 +150,16 @@ const (
 
 // imageFile identifica el archivo de Telegram a descargar.
 type imageFile struct {
-	fileID   string
-	mimeType string
+	fileID       string
+	fileUniqueID string // identifica el archivo aunque cambie su file_id
+	mimeType     string
 }
 
 // imageFileOf detecta si el mensaje trae una imagen que podemos leer.
 func imageFileOf(msg *models.Message) (imageFile, imageKind) {
 	if len(msg.Photo) > 0 {
-		return imageFile{fileID: largestPhoto(msg.Photo).FileID, mimeType: photoMimeType}, imageSupported
+		photo := largestPhoto(msg.Photo)
+		return imageFile{fileID: photo.FileID, fileUniqueID: photo.FileUniqueID, mimeType: photoMimeType}, imageSupported
 	}
 
 	doc := msg.Document
@@ -168,7 +171,7 @@ func imageFileOf(msg *models.Message) (imageFile, imageKind) {
 	case doc.FileSize > maxImageBytes:
 		return imageFile{}, imageTooLarge
 	default:
-		return imageFile{fileID: doc.FileID, mimeType: doc.MimeType}, imageSupported
+		return imageFile{fileID: doc.FileID, fileUniqueID: doc.FileUniqueID, mimeType: doc.MimeType}, imageSupported
 	}
 }
 

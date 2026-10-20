@@ -10,6 +10,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
 )
 
@@ -84,19 +85,28 @@ func TestFailedReadsAndRejectedFilesAreRecorded(t *testing.T) {
 	}
 }
 
+// ctxReader espera hasta que vence el plazo de lectura, como un proveedor que no responde.
+type ctxReader struct{}
+
+func (ctxReader) Read(ctx context.Context, _ reader.Image) (reader.Result, error) {
+	<-ctx.Done()
+	return reader.Result{}, ctx.Err()
+}
+
 func TestReadTimeoutIsStillRecorded(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
-	h.reader.err = context.DeadlineExceeded
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // el contexto del pedido ya venció
+	h.withHandler(Deps{Reader: ctxReader{}, ReadTimeout: 20 * time.Millisecond})
 
 	// Act
-	h.handle(ctx, h.bot, photoUpdate())
+	h.sendPhoto()
 
 	// Assert
 	if m := h.metrics(t); m.ReadErrors != 1 {
 		t.Errorf("errores de lectura = %d, se esperaba 1", m.ReadErrors)
+	}
+	if got := h.jobs(t, testChatID)[0].State; got != store.JobFailedRead {
+		t.Errorf("estado del archivo = %s", got)
 	}
 }
 
