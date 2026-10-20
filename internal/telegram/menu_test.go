@@ -14,7 +14,7 @@ import (
 )
 
 // Catches a primary menu that exposes configuration commands as separate flows.
-func TestConfigureMenuPublishesFourPrimaryFlows(t *testing.T) {
+func TestConfigureMenuPublishesPrimaryFlows(t *testing.T) {
 	var commands []models.BotCommand
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseMultipartForm(1 << 20)
@@ -35,7 +35,7 @@ func TestConfigureMenuPublishesFourPrimaryFlows(t *testing.T) {
 	for _, command := range commands {
 		got = append(got, command.Command)
 	}
-	if !reflect.DeepEqual(got, []string{"facturas", "exportar", "ajustes", "ayuda"}) {
+	if !reflect.DeepEqual(got, []string{"facturas", "exportar", "estado", "ajustes", "ayuda"}) {
 		t.Fatalf("menú = %v", got)
 	}
 }

@@ -87,7 +87,7 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,
 		"base", cfg.DatabasePath)
 	if err := telegram.RecoverJobs(ctx, b, deps); err != nil {
-		logger.Error("no se pudieron retomar los archivos pendientes", "error", err)
+		return err
 	}
 	go telegram.RunReminders(ctx, b, deps)
 	b.Start(ctx)

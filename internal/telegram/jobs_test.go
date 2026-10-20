@@ -50,7 +50,9 @@ func (r *gatedReader) Read(context.Context, reader.Image) (reader.Result, error)
 // withHandler reemplaza el handler del harness y lo devuelve para probar la recuperación.
 func (h *harness) withHandler(deps Deps) *handler {
 	deps.Logger = discardLogger()
-	deps.Store = h.store
+	if deps.Store == nil {
+		deps.Store = h.store
+	}
 	hd := newHandler(deps)
 	h.handle = hd.handle
 	return hd

@@ -105,8 +105,12 @@ func TestReadTimeoutIsStillRecorded(t *testing.T) {
 	if m := h.metrics(t); m.ReadErrors != 1 {
 		t.Errorf("errores de lectura = %d, se esperaba 1", m.ReadErrors)
 	}
-	if got := h.jobs(t, testChatID)[0].State; got != store.JobFailedRead {
-		t.Errorf("estado del archivo = %s", got)
+	if got := h.jobs(t, testChatID)[0].State; got != store.JobUncertain {
+		t.Errorf("estado del archivo = %s, un plazo vencido puede haberse cobrado", got)
+	}
+	last := h.telegram.lastSent(t)
+	if last.text != ReadTimeoutMessage || !strings.Contains(last.markup, retryJobCallback+":") {
+		t.Errorf("respuesta = %+v", last)
 	}
 }
 

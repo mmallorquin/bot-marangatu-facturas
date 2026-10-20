@@ -23,8 +23,10 @@ const (
 	retryJobCallback = "jr"
 
 	DownloadErrorMessage = "😕 No pude descargar el archivo desde Telegram. Probá de nuevo o mandalo otra vez."
-	RetryingAnswer       = "⏳ Reintentando…"
-	NoRetryAlert         = "Ese archivo ya no se puede reintentar."
+	ReadTimeoutMessage   = "⏳ La lectura tardó demasiado y no sé si se llegó a cobrar. " +
+		"Mirá /pendientes y, si la factura no está, tocá Reintentar."
+	RetryingAnswer = "⏳ Reintentando…"
+	NoRetryAlert   = "Ese archivo ya no se puede reintentar."
 
 	// notifyTimeout es el plazo para avisar a un chat tras el arranque.
 	notifyTimeout = 10 * time.Second
@@ -67,36 +69,39 @@ func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
 		return
 	}
 	defer release()
-	if !h.advanceJob(ctx, job, store.JobQueued, store.JobDownloading) {
+	state := store.JobQueued
+	defer h.recoverJobPanic(ctx, b, job, &state)
+	if !h.advanceOrFail(ctx, b, job, state, store.JobDownloading) {
 		return
 	}
+	state = store.JobDownloading
 	readCtx, cancel := context.WithTimeout(ctx, h.readTimeout())
 	defer cancel()
 
 	data, err := downloadFile(readCtx, b, job.FileID)
 	if err != nil {
+		if ctx.Err() != nil {
+			return // apagado o borrado: no es un error del archivo
+		}
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.logger.Error("no se pudo descargar el archivo", "chat_id", job.ChatID, "error", Redact(err, h.deps.Token))
-			h.failJobQuietly(ctx, job, store.JobDownloading, store.JobFailedDownload)
-			h.track(ctx, job.ChatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
-			h.sendReply(ctx, b, job.ChatID, job.MessageID, DownloadErrorMessage, retryKeyboard([]numberedJob{{job: job}}))
+			h.reportDownloadFailure(ctx, b, job, state)
 		})
 		return
 	}
-	if !h.advanceJob(ctx, job, store.JobDownloading, store.JobReading) {
+	if !h.advanceOrFail(ctx, b, job, state, store.JobReading) {
 		return
 	}
+	state = store.JobReading
 
 	start := time.Now()
 	result, err := h.deps.Reader.Read(readCtx, reader.Image{Data: data, MimeType: job.MimeType})
 	if err != nil {
+		if ctx.Err() != nil {
+			return // la lectura queda en leyendo y, al arrancar, como incierta
+		}
 		h.finishRead(ctx, func(ctx context.Context) {
-			h.logger.Error("no se pudo leer la factura", "chat_id", job.ChatID, "error", err)
-			h.failJobQuietly(ctx, job, store.JobReading, store.JobFailedRead)
-			h.track(ctx, job.ChatID, store.Event{
-				Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: time.Since(start).Seconds(),
-			})
-			h.sendReply(ctx, b, job.ChatID, job.MessageID, readFailureMessage(err), nil)
+			h.reportReadFailure(ctx, b, job, err, time.Since(start).Seconds(), errors.Is(readCtx.Err(), context.DeadlineExceeded))
 		})
 		return
 	}
@@ -105,13 +110,56 @@ func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
 	})
 }
 
-// advanceJob mueve el trabajo de estado; false si ya no existe, se canceló o la base falló.
-func (h *handler) advanceJob(ctx context.Context, job store.Job, from, to store.JobState) bool {
-	err := h.deps.Store.AdvanceJob(ctx, job.ChatID, job.ID, from, to)
-	if err != nil && !errors.Is(err, store.ErrJobGone) && ctx.Err() == nil {
-		h.logger.Error("no se pudo actualizar el archivo", "chat_id", job.ChatID, "job", job.ID, "error", err)
+// reportDownloadFailure cierra el trabajo como error de descarga y ofrece reintentarlo.
+func (h *handler) reportDownloadFailure(ctx context.Context, b *bot.Bot, job store.Job, from store.JobState) {
+	h.failJobQuietly(ctx, job, from, store.JobFailedDownload)
+	h.track(ctx, job.ChatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailDownload})
+	h.sendReply(ctx, b, job.ChatID, job.MessageID, DownloadErrorMessage, retryKeyboard([]numberedJob{{job: job}}))
+}
+
+// reportReadFailure cierra el trabajo tras un fallo del lector. Si venció el plazo, el proveedor
+// pudo haber cobrado: queda incierto y se pide decidir en vez de dar por fallida la lectura.
+func (h *handler) reportReadFailure(ctx context.Context, b *bot.Bot, job store.Job, err error, seconds float64, timedOut bool) {
+	h.logger.Error("no se pudo leer la factura", "chat_id", job.ChatID, "error", err)
+	h.track(ctx, job.ChatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: seconds})
+	if timedOut {
+		h.failJobQuietly(ctx, job, store.JobReading, store.JobUncertain)
+		h.sendReply(ctx, b, job.ChatID, job.MessageID, ReadTimeoutMessage, retryKeyboard([]numberedJob{{job: job}}))
+		return
 	}
-	return err == nil
+	h.failJobQuietly(ctx, job, store.JobReading, store.JobFailedRead)
+	h.sendReply(ctx, b, job.ChatID, job.MessageID, readFailureMessage(err), nil)
+}
+
+// advanceOrFail mueve el trabajo de estado. Si la base falla con el trabajo vivo, lo cierra como
+// error de descarga con botón de reintento para que no quede trabado y mudo.
+func (h *handler) advanceOrFail(ctx context.Context, b *bot.Bot, job store.Job, from, to store.JobState) bool {
+	err := h.deps.Store.AdvanceJob(ctx, job.ChatID, job.ID, from, to)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, store.ErrJobGone) || ctx.Err() != nil {
+		return false
+	}
+	h.logger.Error("no se pudo actualizar el archivo", "chat_id", job.ChatID, "job", job.ID, "error", err)
+	h.finishRead(ctx, func(ctx context.Context) { h.reportDownloadFailure(ctx, b, job, from) })
+	return false
+}
+
+// recoverJobPanic evita que un lector que falla con pánico deje el trabajo en leyendo sin respuesta.
+func (h *handler) recoverJobPanic(ctx context.Context, b *bot.Bot, job store.Job, state *store.JobState) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	h.logger.Error("pánico al procesar el archivo", "chat_id", job.ChatID, "job", job.ID, "panic", r)
+	if ctx.Err() != nil {
+		return
+	}
+	h.finishRead(ctx, func(ctx context.Context) {
+		h.failJobQuietly(ctx, job, *state, store.JobFailedRead)
+		h.sendReply(ctx, b, job.ChatID, job.MessageID, ReadErrorMessage, retryKeyboard([]numberedJob{{job: job}}))
+	})
 }
 
 // failJobQuietly cierra el trabajo con error; si falla, solo queda en el log.
@@ -179,7 +227,7 @@ func (h *handler) recoverJobs(ctx context.Context, b *bot.Bot) (*sync.WaitGroup,
 	for _, job := range requeued {
 		running.Go(func() { h.resumeJob(ctx, b, job) })
 	}
-	h.notifyUncertain(ctx, b, uncertain)
+	running.Go(func() { h.notifyUncertain(ctx, b, uncertain) }) // sin demorar el arranque
 	h.logger.Info("archivos recuperados", "reencolados", len(requeued), "inciertos", len(uncertain))
 	return &running, nil
 }

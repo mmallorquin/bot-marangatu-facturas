@@ -14,6 +14,7 @@ func ConfigureMenu(ctx context.Context, b *bot.Bot) error {
 	_, commandsErr := b.SetMyCommands(ctx, &bot.SetMyCommandsParams{Commands: []models.BotCommand{
 		{Command: "facturas", Description: "Mis facturas: pendientes, guardadas y totales"},
 		{Command: "exportar", Description: "Exportar: elegir período y revisar archivos"},
+		{Command: "estado", Description: "Estado: archivos recibidos, en espera o con error"},
 		{Command: "ajustes", Description: "Ajustes: RUC, impuestos y preferencias"},
 		{Command: "ayuda", Description: "Ayuda: cómo usar el bot y presentar en Marangatu"},
 	}})
