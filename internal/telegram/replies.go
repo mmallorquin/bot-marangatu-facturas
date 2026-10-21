@@ -25,7 +25,7 @@ const (
 		"El bot no presenta tus registros ante la DNIT.\n" + presentationHint + "\n" + retentionHint
 	HelpMessage              = "Mandame una foto de la factura 📸 o el PDF 📄 y la leo por vos. Para ver las opciones, tocá Menú junto al campo de mensaje."
 	ReadingMessage           = "⏳ Leyendo tu factura…"
-	ReadingAlbumMessage      = "⏳ Leyendo tus facturas… Cuando terminen, con /pendientes guardás de una vez las que cierran."
+	ReadingAlbumMessage      = "⏳ Leyendo tus facturas… Primero te muestro las que salen bien y, al final, de a una las que hay que revisar."
 	ReadErrorMessage         = "😕 No pude leer la factura en este momento. Probá de nuevo en un rato."
 	NotInvoiceMessage        = "🤔 No parece una factura. Mandame una foto donde se vea el comprobante completo."
 	UnsupportedFormatMessage = "Por ahora leo fotos e imágenes JPG, PNG o WEBP, y archivos PDF. Mandá la factura como foto 📸 o como PDF 📄"

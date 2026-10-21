@@ -64,6 +64,7 @@ func (h *handler) readTimeout() time.Duration {
 // Si ctx se cancela (el usuario borró sus datos o el bot se apaga) el trabajo se abandona sin avisar:
 // en el primer caso ya no existe; en el segundo se retoma al arrancar.
 func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
+	defer h.closeBatch(ctx, b, job.ChatID) // corre último, después de responder por este archivo
 	release, err := h.deps.Operations.gate.acquire(ctx, job.ChatID)
 	if err != nil {
 		return
