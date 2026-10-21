@@ -316,19 +316,30 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 		return
 	}
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	note := ""
 	if rucFromCDC {
 		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
-		text += "\n\n" + RUCFromCDCNote
+		note = "\n\n" + RUCFromCDCNote
 	}
+	batch := currentBatch(ctx)
 	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
-			h.sendReply(ctx, b, chatID, photoMessageID, text+"\n\n"+AutoSavedNote, savedKeyboard(id, source.FileID != ""))
+			saved := text + note + "\n\n" + AutoSavedNote
+			if batch != nil {
+				batch.saved++
+				saved = FormatSavedLine(inv) + note
+			}
+			h.sendReply(ctx, b, chatID, photoMessageID, saved, savedKeyboard(id, source.FileID != ""))
 			return
 		}
 		// Si falla el guardado automático, queda como borrador con los botones de siempre.
 	}
-	h.sendReply(ctx, b, chatID, photoMessageID, text, reviewKeyboard(id, inv, source.FileID != ""))
+	if batch != nil && (duplicate || !invoice.Clean(inv)) {
+		batch.review = append(batch.review, id) // se muestra al cerrar la tanda
+		return
+	}
+	h.sendReply(ctx, b, chatID, photoMessageID, text+note, reviewKeyboard(id, inv, source.FileID != ""))
 }
 
 // problemFields son los campos con problemas, avisos o dudas de una lectura, sin repetir.

@@ -138,7 +138,7 @@ Al exportar por primera vez se pide el RUC (lo escribís tal cual), los impuesto
 de registro con botones; después se retoma el período solicitado. Elegí la obligación que figure activa en tu RUC en Marangatu.
 El botón **No sé** explica dónde consultarla; el bot no la deduce de los impuestos ni consulta tu cuenta.
 
-1. Mandás la foto de la factura o el PDF: una factura por archivo. Podés mandar varias fotos juntas, como álbum. Separá un PDF que reúna varias facturas.
+1. Mandás la foto de la factura o el PDF: una factura por archivo. Podés mandar varias fotos juntas, como álbum: las que se guardan solas se confirman en una línea y, cuando termina el último archivo, el bot te muestra de a una las que hay que revisar. Separá un PDF que reúna varias facturas.
 2. El bot la lee y te la muestra con tres botones:
 
    ```

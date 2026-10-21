@@ -18,6 +18,7 @@ type chatOperation struct {
 	generation  uint64
 	reads       map[*readOperation]context.CancelFunc
 	deleteToken string
+	batch       batchProgress
 }
 
 type readOperation struct {
@@ -58,6 +59,7 @@ func beginRead(ctx context.Context, c *chatOperation) (context.Context, func()) 
 	op := currentOperation(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	c.reads[op] = cancel
+	c.batch.open++ // se descuenta en closeBatch
 	return ctx, func() {
 		cancel()
 		c.mu.Lock()
@@ -83,4 +85,5 @@ func invalidateReads(ctx context.Context) {
 		cancel()
 	}
 	op.chat.deleteToken = ""
+	op.chat.batch = batchProgress{} // las lecturas canceladas ya no cierran su tanda
 }

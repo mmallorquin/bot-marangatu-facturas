@@ -185,6 +185,11 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 // offerNextPending muestra la pendiente más antigua que queda, con sus botones y citando su foto,
 // para seguir revisando sin buscarla en el chat. Si no queda ninguna, no dice nada.
 func (h *handler) offerNextPending(ctx context.Context, b *bot.Bot, chatID int64) {
+	h.offerPending(ctx, b, chatID, 0)
+}
+
+// offerPending es offerNextPending empezando por la pendiente first, si sigue pendiente.
+func (h *handler) offerPending(ctx context.Context, b *bot.Bot, chatID, first int64) {
 	drafts, err := h.deps.Store.Drafts(ctx, chatID)
 	if err != nil {
 		h.logger.Error("no se pudieron leer los pendientes", "chat_id", chatID, "error", err)
@@ -194,6 +199,12 @@ func (h *handler) offerNextPending(ctx context.Context, b *bot.Bot, chatID int64
 		return
 	}
 	next := drafts[0]
+	for _, d := range drafts {
+		if d.ID == first {
+			next = d
+			break
+		}
+	}
 	text, _ := h.invoiceMessage(ctx, chatID, next.Invoice, invoice.Validate(next.Invoice))
 	header := fmt.Sprintf(NextPendingHeader, plural(len(drafts), "queda", "quedan"), len(drafts))
 	h.sendReply(ctx, b, chatID, next.Source.MessageID, header+text, reviewKeyboard(next.ID, next.Invoice, next.Source.FileID != ""))
