@@ -88,6 +88,25 @@ func TestRunStopsCleanlyWhenContextIsCancelled(t *testing.T) {
 	}
 }
 
+func TestRunStopsCleanlyWhenCancelledDuringStartup(t *testing.T) {
+	// Arrange
+	setValidEnv(t, "123456:ABC-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // la orden de detenerse llega antes de recuperar los archivos pendientes
+
+	// Act
+	err := run(ctx, discardLogger(), bot.WithServerURL(server.URL), bot.WithSkipGetMe())
+
+	// Assert
+	if err != nil {
+		t.Errorf("detenerse durante el arranque no es una falla: %v", err)
+	}
+}
+
 func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 	setValidEnv(t, "123456:ABC-token")
 	commandsPayload := make(chan string, 1)

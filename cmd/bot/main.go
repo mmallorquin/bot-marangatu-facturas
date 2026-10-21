@@ -87,6 +87,10 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,
 		"base", cfg.DatabasePath)
 	if err := telegram.RecoverJobs(ctx, b, deps); err != nil {
+		if ctx.Err() != nil { // la orden de detenerse llegó durante el arranque: no es una falla
+			logger.Info("bot detenido")
+			return nil
+		}
 		return err
 	}
 	go telegram.RunReminders(ctx, b, deps)
