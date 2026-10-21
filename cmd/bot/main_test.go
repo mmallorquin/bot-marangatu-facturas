@@ -88,10 +88,33 @@ func TestRunStopsCleanlyWhenContextIsCancelled(t *testing.T) {
 	}
 }
 
+func TestRunStopsCleanlyWhenCancelledDuringStartup(t *testing.T) {
+	// Arrange
+	setValidEnv(t, "123456:ABC-token")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // la orden de detenerse llega antes de recuperar los archivos pendientes
+
+	// Act
+	err := run(ctx, discardLogger(), bot.WithServerURL(server.URL), bot.WithSkipGetMe())
+
+	// Assert
+	if err != nil {
+		t.Errorf("detenerse durante el arranque no es una falla: %v", err)
+	}
+}
+
 func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 	setValidEnv(t, "123456:ABC-token")
 	commandsPayload := make(chan string, 1)
 	menuPayload := make(chan string, 1)
+	// El bot se detiene al recibir la última llamada del menú, no por un plazo fijo: en CI con -race
+	// abrir la base puede tardar más que cualquier plazo corto.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseMultipartForm(1 << 20)
 		switch {
@@ -101,13 +124,12 @@ func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/setChatMenuButton"):
 			menuPayload <- r.FormValue("menu_button")
 			_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+			cancel()
 		default:
 			_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
 		}
 	}))
 	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
 	if err := run(ctx, discardLogger(), bot.WithServerURL(server.URL), bot.WithSkipGetMe()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
