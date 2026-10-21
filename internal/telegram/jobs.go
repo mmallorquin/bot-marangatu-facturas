@@ -201,9 +201,9 @@ func (h *handler) handleRetryJobCallback(ctx context.Context, b *bot.Bot, query 
 		return
 	}
 	ctx, done := beginRead(ctx, c)
-	h.answer(ctx, b, query.ID, RetryingAnswer, false)
 	c.mu.Unlock()
 	defer done()
+	h.answer(ctx, b, query.ID, RetryingAnswer, false) // fuera del bloqueo: es una llamada a Telegram
 	h.processJob(ctx, b, job)
 }
 

@@ -110,7 +110,9 @@ func (r signalReader) Read(ctx context.Context, _ reader.Image) (reader.Result, 
 
 type panicReader struct{}
 
-func (panicReader) Read(context.Context, reader.Image) (reader.Result, error) { panic("proveedor roto") }
+func (panicReader) Read(context.Context, reader.Image) (reader.Result, error) {
+	panic("proveedor roto")
+}
 
 func TestShutdownDuringDownloadLeavesJobUntouchedAndSilent(t *testing.T) {
 	h := newHarness(t)
