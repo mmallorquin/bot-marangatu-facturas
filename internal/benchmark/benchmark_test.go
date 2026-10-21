@@ -22,7 +22,7 @@ var (
 // validInvoice pasa todas las validaciones.
 func validInvoice(total int64) invoice.Invoice {
 	return invoice.Invoice{
-		IsInvoice: true, IssuerRUC: "80000519-8", Timbrado: "12345678", Number: "001-001-0001234",
+		IsInvoice: true, IssuerName: "Comercial Ejemplo", IssuerRUC: "80000519-8", Timbrado: "12345678", Number: "001-001-0001234",
 		Date: "2026-09-20", Condition: invoice.ConditionCash, Currency: invoice.CurrencyPYG,
 		Taxed10: total, VAT10: total / 11, Total: total,
 	}

@@ -136,7 +136,7 @@ func TestFullUserJourney(t *testing.T) {
 	// 11. Borrar una factura desde /facturas.
 	h.sendText("/facturas")
 	h.pressRaw("l:a:1:2026-09")
-	h.pressRaw("l:s:1:2026-09")
+	h.pressRaw(shownCallback(t, h.telegram.lastSent(t).markup, "l:s:1:2026-09"))
 	h.sendText("/resumen")
 	expect("resumen tras borrar", lastText(), "1 factura guardada", "150.000 Gs")
 }

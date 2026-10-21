@@ -128,7 +128,7 @@ func TestPDFIsReadAndCountedAsPDF(t *testing.T) {
 	if len(h.reader.received) != 1 || h.reader.received[0].MimeType != "application/pdf" {
 		t.Fatalf("el lector debería recibir el PDF: %+v", h.reader.received)
 	}
-	if got := h.telegram.lastSent(t); !strings.Contains(got.markup, `"g:1"`) {
+	if got := h.telegram.lastSent(t); !strings.Contains(got.markup, `"g:1:`) {
 		t.Errorf("debería mostrar la factura con botones: %+v", got)
 	}
 	if m := h.metrics(t); m.Photos != 1 || m.PDFs != 1 {

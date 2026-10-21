@@ -92,7 +92,7 @@ func TestLegacyDuplicateExportCanBeResolvedFromTelegramHistory(t *testing.T) {
 		t.Fatal("no se puede abrir/borrar copia")
 	}
 	h.pressRaw(listCallback{action: listActionAsk, id: duplicateID, period: "2026-09"}.encode())
-	h.pressRaw(listCallback{action: listActionConfirm, id: duplicateID, period: "2026-09"}.encode())
+	h.pressRaw(shownCallback(t, h.telegram.lastSent(t).markup, listCallback{action: listActionConfirm, id: duplicateID, period: "2026-09"}.encode()))
 	if rec, err := h.store.Get(context.Background(), testChatID, duplicateID); err != nil || rec.Status != store.StatusDeleted || rec.Original.IssuerRUC != inv.IssuerRUC {
 		t.Fatal("borrado no preservó original")
 	}

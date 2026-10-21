@@ -74,11 +74,6 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		return
 	}
 	press := buttonPress{queryID: query.ID, chatID: msg.Chat.ID, messageID: msg.ID, callback: c}
-	if c.action == actionUndo {
-		h.undoAutoSave(ctx, b, press)
-		return
-	}
-
 	rec, err := h.deps.Store.Get(ctx, press.chatID, c.id)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		h.logger.Error("no se pudo leer la factura", "chat_id", press.chatID, "error", err)
@@ -88,9 +83,21 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 	// Ver la foto y volver a la lectura valen mientras la factura exista, guardada o pendiente.
 	// El resto de los botones edita el borrador, así que una guardada o descartada ya no los acepta.
 	viewing := c.action == actionPhoto || c.action == actionShow
-	if err != nil || rec.Status == store.StatusDiscarded || (!viewing && rec.Status != store.StatusDraft) {
+	if err != nil || rec.Status == store.StatusDiscarded || rec.Status == store.StatusDeleted {
 		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 		h.editKeyboard(ctx, b, press, noKeyboard())
+		return
+	}
+	if !viewing && c.revision != invoiceRevision(rec) {
+		h.refreshInvoice(ctx, b, press, rec)
+		return
+	}
+	if c.action == actionUndo {
+		h.undoAutoSave(ctx, b, press)
+		return
+	}
+	if !viewing && rec.Status != store.StatusDraft {
+		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 		return
 	}
 
@@ -103,6 +110,14 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.editKeyboard(ctx, b, press, fieldsKeyboard(c.id))
 		h.answer(ctx, b, press.queryID, "", false)
 	case actionBack:
+		pending, found, err := h.deps.Store.Awaiting(ctx, press.chatID)
+		if err == nil && found && pending.ID == rec.ID {
+			err = h.deps.Store.ClearAwaiting(ctx, press.chatID)
+		}
+		if err != nil {
+			h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+			return
+		}
 		h.editKeyboard(ctx, b, press, reviewKeyboard(c.id, rec.Invoice, rec.Source.FileID != ""))
 		h.answer(ctx, b, press.queryID, "", false)
 	case actionUseRUC:
@@ -143,7 +158,7 @@ func (h *handler) applyShortcut(ctx context.Context, b *bot.Bot, press buttonPre
 		return
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventCorrection, Detail: field})
-	text, _ := h.invoiceMessage(ctx, press.chatID, edited, invoice.Validate(edited))
+	text, _ := h.invoiceMessage(ctx, press.chatID, edited)
 	if note != "" {
 		text += "\n\n" + note
 	}
@@ -205,7 +220,7 @@ func (h *handler) offerPending(ctx context.Context, b *bot.Bot, chatID, first in
 			break
 		}
 	}
-	text, _ := h.invoiceMessage(ctx, chatID, next.Invoice, invoice.Validate(next.Invoice))
+	text, _ := h.invoiceMessage(ctx, chatID, next.Invoice)
 	header := fmt.Sprintf(NextPendingHeader, plural(len(drafts), "queda", "quedan"), len(drafts))
 	h.sendReply(ctx, b, chatID, next.Source.MessageID, header+text, reviewKeyboard(next.ID, next.Invoice, next.Source.FileID != ""))
 }
@@ -227,7 +242,7 @@ func (h *handler) undoAutoSave(ctx context.Context, b *bot.Bot, press buttonPres
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))+"\n\n"+UndoneNote, reviewKeyboard(rec.ID, rec.Invoice, rec.Source.FileID != ""))
+	h.editText(ctx, b, press, FormatInvoice(rec.Invoice, h.reviewIssues(rec.Invoice))+"\n\n"+UndoneNote, reviewKeyboard(rec.ID, rec.Invoice, rec.Source.FileID != ""))
 	h.answer(ctx, b, press.queryID, "", false)
 }
 
@@ -253,12 +268,21 @@ func (h *handler) discardInvoice(ctx context.Context, b *bot.Bot, press buttonPr
 
 func (h *handler) askForValue(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
 	field := press.callback.field
+	previous, found, err := h.deps.Store.Awaiting(ctx, press.chatID)
+	if err != nil {
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
 	if err := h.deps.Store.SetAwaiting(ctx, press.chatID, press.callback.id, field); err != nil {
 		h.logger.Error("no se pudo iniciar la corrección", "chat_id", press.chatID, "error", err)
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	h.sendReply(ctx, b, press.chatID, rec.Source.MessageID, askValueMessage(field), nil)
+	text := fmt.Sprintf("🧾 Factura #%d · %s · %s\n\n", rec.ID, historyValue(rec.Invoice.Number, maxNumberDisplayUTF16), previewIssuer(rec.Invoice.IssuerName))
+	if found && (previous.ID != rec.ID || previous.Field != field) {
+		text += "Dejé la corrección anterior sin aplicar. Ahora corregís esta factura.\n\n"
+	}
+	h.sendReply(ctx, b, press.chatID, rec.Source.MessageID, text+askValueMessage(field), nil)
 	h.answer(ctx, b, press.queryID, "", false)
 }
 
@@ -271,6 +295,7 @@ func (h *handler) answer(ctx context.Context, b *bot.Bot, queryID, text string, 
 }
 
 func (h *handler) editText(ctx context.Context, b *bot.Bot, press buttonPress, text string, keyboard *models.InlineKeyboardMarkup) {
+	keyboard = h.bindKeyboard(ctx, press.chatID, keyboard)
 	_, err := b.EditMessageText(ctx, &bot.EditMessageTextParams{
 		ChatID: press.chatID, MessageID: press.messageID, Text: telegramMessageText(text), ReplyMarkup: keyboard,
 	})
@@ -280,6 +305,7 @@ func (h *handler) editText(ctx context.Context, b *bot.Bot, press buttonPress, t
 }
 
 func (h *handler) editKeyboard(ctx context.Context, b *bot.Bot, press buttonPress, keyboard *models.InlineKeyboardMarkup) {
+	keyboard = h.bindKeyboard(ctx, press.chatID, keyboard)
 	_, err := b.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
 		ChatID: press.chatID, MessageID: press.messageID, ReplyMarkup: keyboard,
 	})

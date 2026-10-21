@@ -38,7 +38,7 @@ func TestSavingShowsTheNextPendingInvoiceCitingItsPhoto(t *testing.T) {
 	// Assert: aparece la segunda, con sus botones, citando su foto.
 	next := nextPendingMessages(h)
 	if len(next) != 1 || !strings.Contains(next[0].text, "(queda 1)") || !strings.Contains(next[0].text, "001-001-0005678") ||
-		!strings.Contains(next[0].markup, `"g:2"`) || !strings.Contains(next[0].replyTo, `"message_id":78`) {
+		!strings.Contains(next[0].markup, `"g:2:`) || !strings.Contains(next[0].replyTo, `"message_id":78`) {
 		t.Fatalf("siguiente pendiente: %+v", next)
 	}
 	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved {
@@ -60,7 +60,7 @@ func TestDiscardingAlsoShowsTheNextPendingInvoice(t *testing.T) {
 	h.press(callback{action: actionDiscard, id: 2})
 
 	next := nextPendingMessages(h)
-	if len(next) != 1 || !strings.Contains(next[0].markup, `"g:1"`) || !strings.Contains(next[0].replyTo, `"message_id":77`) {
+	if len(next) != 1 || !strings.Contains(next[0].markup, `"g:1:`) || !strings.Contains(next[0].replyTo, `"message_id":77`) {
 		t.Errorf("siguiente pendiente tras descartar: %+v", next)
 	}
 }

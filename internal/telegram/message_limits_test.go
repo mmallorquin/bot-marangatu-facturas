@@ -19,7 +19,7 @@ func TestOversizedInvoiceReplyPreservesReviewButtonsAndFullRecord(t *testing.T) 
 	if units := len(utf16.Encode([]rune(message.text))); units > 4096 {
 		t.Fatalf("mensaje excede Telegram: %d", units)
 	}
-	if !strings.Contains(message.text, "Emisor: "+strings.Repeat("🧾", 79)+"…") || !strings.Contains(message.markup, `"e:1"`) || !strings.Contains(message.markup, `"g:1"`) {
+	if !strings.Contains(message.text, "Emisor: "+strings.Repeat("🧾", 79)+"…") || !strings.Contains(message.markup, `"e:1:`) || !strings.Contains(message.markup, `"g:1:`) {
 		t.Fatalf("mensaje no conserva aviso y revisión: %+v", message)
 	}
 	rec, err := h.store.Get(context.Background(), testChatID, 1)
@@ -48,7 +48,7 @@ func TestOversizedIssuerPreservesWarningsButtonsAndManualSave(t *testing.T) {
 			if !strings.Contains(message.text, "No se lee bien: total") {
 				t.Fatalf("se perdió el aviso del dato dudoso: %q", message.text)
 			}
-			if !strings.Contains(message.markup, `"e:1"`) || !strings.Contains(message.markup, `"g:1"`) {
+			if !strings.Contains(message.markup, `"e:1:`) || !strings.Contains(message.markup, `"g:1:`) {
 				t.Fatalf("faltan botones de revisión: %+v", message)
 			}
 			if strings.Contains(message.text, AutoSavedNote) {
@@ -94,7 +94,7 @@ func TestManyLongWarningsAndIdentifiersKeepReviewAndTotalsVisible(t *testing.T) 
 			t.Errorf("falta contenido visible %q:\n%s", want, message.text)
 		}
 	}
-	if !strings.Contains(message.markup, `"e:1"`) || !strings.Contains(message.markup, `"g:1"`) {
+	if !strings.Contains(message.markup, `"e:1:`) || !strings.Contains(message.markup, `"g:1:`) {
 		t.Fatalf("faltan botones de revisión: %+v", message)
 	}
 	rec, err := h.store.Get(context.Background(), testChatID, 1)
@@ -120,7 +120,7 @@ func TestOversizedHistoryDetailPreservesCorrectionButtonsAndFullRecord(t *testin
 	if units := len(utf16.Encode([]rune(message.text))); units > 4096 {
 		t.Fatalf("detalle excede Telegram: %d", units)
 	}
-	if !strings.Contains(message.text, "Emisor: "+strings.Repeat("🧾", 79)+"…") || !strings.Contains(message.markup, `"e:1"`) || !strings.Contains(message.markup, `"h:l:p:2026-09:0"`) {
+	if !strings.Contains(message.text, "Emisor: "+strings.Repeat("🧾", 79)+"…") || !strings.Contains(message.markup, `"e:1:`) || !strings.Contains(message.markup, `"h:l:p:2026-09:0"`) {
 		t.Fatalf("detalle sin corrección/retorno: %+v", message)
 	}
 	rec, err := h.store.Get(context.Background(), testChatID, 1)

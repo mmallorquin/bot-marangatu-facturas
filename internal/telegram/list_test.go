@@ -53,7 +53,7 @@ func TestDeletingAnInvoiceAsksFirstAndRemovesItFromSummary(t *testing.T) {
 	h.sendText("/resumen")
 	afterCancel := h.telegram.lastSent(t).text
 	h.pressRaw("l:a:1:2026-09")
-	h.pressRaw("l:s:1:2026-09")
+	h.pressRaw(shownCallback(t, h.telegram.lastSent(t).markup, "l:s:1:2026-09"))
 	edited := h.telegram.byMethod("editMessageText")
 	h.sendText("/resumen")
 	afterDelete := h.telegram.lastSent(t).text

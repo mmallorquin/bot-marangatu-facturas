@@ -20,11 +20,12 @@ const historyCallbackPrefix = "h"
 // h:l:<p|s>:<period>:<page>, or h:<o|e>:<p|s>:<period>:<page>:<id>.
 // Pending includes all drafts, including invoices whose date still needs correction.
 type historyCallback struct {
-	action string
-	tab    string
-	period string
-	page   int
-	id     int64
+	action   string
+	tab      string
+	period   string
+	page     int
+	id       int64
+	revision string
 }
 
 func (c historyCallback) encode() string {
@@ -32,15 +33,19 @@ func (c historyCallback) encode() string {
 	if c.action != "l" {
 		data += fmt.Sprintf(":%d", c.id)
 	}
+	if c.revision != "" {
+		data += ":" + c.revision
+	}
 	return data
 }
 
 func parseHistoryCallback(data string, now time.Time) (historyCallback, error) {
+	data, revision := splitRevision(data)
 	parts := strings.Split(data, ":")
 	if len(parts) < 5 || parts[0] != historyCallbackPrefix || (parts[2] != "p" && parts[2] != "s") {
 		return historyCallback{}, errInvalidCallback
 	}
-	c := historyCallback{action: parts[1], tab: parts[2], period: parts[3]}
+	c := historyCallback{action: parts[1], tab: parts[2], period: parts[3], revision: revision}
 	if !validHistoryPeriod(c.period, now) {
 		return historyCallback{}, errInvalidCallback
 	}
@@ -134,7 +139,7 @@ func (h *handler) historyList(ctx context.Context, chatID int64, c historyCallba
 	for index, rec := range records[start:end] {
 		inv, number := rec.Invoice, start+index+1
 		marker := ""
-		if c.tab == "p" && !invoice.Clean(inv) {
+		if c.tab == "p" && (!invoice.Clean(inv) || len(h.reviewIssues(inv)) > 0) {
 			marker = " · ⚠️ Revisar"
 		}
 		fmt.Fprintf(&text, "\n%d. %s · %s · %s · %s Gs%s", number, historyValue(displayDate(inv.Date), 24), previewIssuer(inv.IssuerName), historyValue(inv.Number, 30), formatGs(inv.Total), marker)
@@ -222,13 +227,17 @@ func (h *handler) handleHistoryCallback(ctx context.Context, b *bot.Bot, query *
 		return
 	}
 	if c.action == "e" {
+		if c.revision != invoiceRevision(rec) {
+			h.refreshInvoice(ctx, b, press, rec)
+			return
+		}
 		if err := h.deps.Store.Unsave(ctx, press.chatID, c.id); err != nil {
 			h.answer(ctx, b, query.ID, StoreErrorMessage, true)
 			return
 		}
 		h.track(ctx, press.chatID, store.Event{Kind: store.EventUndo})
 		c.tab = "p"
-		text := FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice)) + "\n\n✏️ La factura quedó pendiente. Corregí los datos y tocá Guardar de nuevo."
+		text := FormatInvoice(rec.Invoice, h.reviewIssues(rec.Invoice)) + "\n\n✏️ La factura quedó pendiente. Corregí los datos y tocá Guardar de nuevo."
 		keyboard := fieldsKeyboard(c.id)
 		back := c
 		back.action, back.id = "l", 0
@@ -237,7 +246,7 @@ func (h *handler) handleHistoryCallback(ctx context.Context, b *bot.Bot, query *
 		h.answer(ctx, b, query.ID, "", false)
 		return
 	}
-	text := FormatInvoice(rec.Invoice, invoice.Validate(rec.Invoice))
+	text := FormatInvoice(rec.Invoice, h.reviewIssues(rec.Invoice))
 	keyboard := reviewKeyboard(c.id, rec.Invoice, rec.Source.FileID != "")
 	if c.tab == "s" {
 		if rec.Invoice.CDC != "" {
@@ -254,7 +263,7 @@ func (h *handler) handleHistoryCallback(ctx context.Context, b *bot.Bot, query *
 			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{photoButton(c.id)})
 		}
 	} else {
-		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice, invoice.Validate(rec.Invoice))
+		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice)
 	}
 	back := c
 	back.action, back.id = "l", 0

@@ -153,6 +153,18 @@ El botón **No sé** explica dónde consultarla; el bot no la deduce de los impu
 Las facturas que cierran (sin avisos ni dudas, y que no estaban guardadas) se guardan solas, con un botón **↩️ Deshacer**.
 Para revisarlas una por una antes de guardar: `/autoguardar no`.
 
+La razón social vacía impide guardar: hay que completarla. Una fecha futura (según el día
+en Paraguay) queda pendiente y fuera del guardado automático o grupal; el bot avisa para
+que revises la foto. Si confirmás que es correcta, podés guardar esa factura individualmente.
+Es una precaución de lectura, no una nueva prohibición tributaria.
+
+Los botones de una factura se vinculan a los datos y al estado mostrados, incluida la
+relectura propuesta. Un botón antiguo o desactualizado muestra los datos actuales y pide
+confirmación de nuevo, sin aplicar la acción ni volver a llamar al lector. Esto incluye
+Deshacer, corregir una guardada y confirmar su borrado. Las fotos y lecturas siguen accesibles.
+Al corregir, el bot identifica la factura y el campo; si cambiás de corrección te lo avisa.
+`/cancelar` no guarda ni restaura nada: indica el estado real y ofrece los botones para continuar.
+
 Cada lectura cita la foto que la generó (tocá la cita para ir a la foto) y lleva **📷 Ver foto**,
 también cuando ya está guardada o en el detalle de **Mis facturas**. La foto reenviada dice de qué
 factura es y tiene **📋 Ver lectura** para volver; en una pendiente, también **🔁 Releer**.

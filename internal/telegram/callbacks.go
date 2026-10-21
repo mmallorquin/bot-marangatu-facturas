@@ -36,12 +36,18 @@ var errInvalidCallback = errors.New("botón inválido")
 
 // callback es la acción de un botón sobre una factura.
 type callback struct {
-	action string
-	id     int64
-	field  string // solo para actionField
+	action   string
+	id       int64
+	field    string // solo para actionField
+	revision string
 }
 
 func (c callback) encode() string {
+	if c.revision != "" {
+		revision := c.revision
+		c.revision = ""
+		return c.encode() + ":" + revision
+	}
 	if c.action == actionField || c.action == actionAdopt {
 		return fmt.Sprintf("%s:%d:%s", c.action, c.id, c.field)
 	}
@@ -49,16 +55,17 @@ func (c callback) encode() string {
 }
 
 func parseCallback(data string) (callback, error) {
+	data, revision := splitRevision(data)
 	parts := strings.Split(data, ":")
 	if len(parts) < 2 {
 		return callback{}, errInvalidCallback
 	}
 	id, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		return callback{}, errInvalidCallback
 	}
 
-	c := callback{action: parts[0], id: id}
+	c := callback{action: parts[0], id: id, revision: revision}
 	switch {
 	case c.action == actionField && len(parts) == 3 && slices.Contains(invoice.EditableFields, parts[2]):
 		c.field = parts[2]

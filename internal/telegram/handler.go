@@ -278,7 +278,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 	// Se conserva el resultado del lector intacto para guardarlo como original.
 	inv.Number = invoice.NormalizeNumber(inv.Number)
 	inv, rucFromCDC := invoice.ReconcileRUCWithCDC(inv)
-	issues := invoice.Validate(inv)
+	issues := h.reviewIssues(inv)
 	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
 	for _, field := range problemFields(inv, issues) {
 		h.track(ctx, chatID, store.Event{Kind: store.EventReadIssue, Detail: field})
@@ -315,14 +315,14 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 		h.sendReply(ctx, b, chatID, photoMessageID, FormatInvoice(inv, issues)+"\n\n"+StoreErrorMessage, nil)
 		return
 	}
-	text, duplicate := h.invoiceMessage(ctx, chatID, inv, issues)
+	text, duplicate := h.invoiceMessage(ctx, chatID, inv)
 	note := ""
 	if rucFromCDC {
 		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
 		note = "\n\n" + RUCFromCDCNote
 	}
 	batch := currentBatch(ctx)
-	if !duplicate && invoice.Clean(inv) && h.autoSaves(ctx, chatID) {
+	if !duplicate && invoice.Clean(inv) && len(issues) == 0 && h.autoSaves(ctx, chatID) {
 		if err := h.deps.Store.Save(ctx, chatID, id); err == nil {
 			h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailClean})
 			saved := text + note + "\n\n" + AutoSavedNote
@@ -335,7 +335,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 		}
 		// Si falla el guardado automático, queda como borrador con los botones de siempre.
 	}
-	if batch != nil && (duplicate || !invoice.Clean(inv)) {
+	if batch != nil && (duplicate || !invoice.Clean(inv) || len(issues) > 0) {
 		batch.review = append(batch.review, id) // se muestra al cerrar la tanda
 		return
 	}
@@ -369,7 +369,8 @@ func (h *handler) autoSaves(ctx context.Context, chatID int64) bool {
 
 // invoiceMessage es la factura con sus avisos (si ya estaba guardada o si es electrónica)
 // e indica si es un duplicado.
-func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice, issues []invoice.Issue) (string, bool) {
+func (h *handler) invoiceMessage(ctx context.Context, chatID int64, inv invoice.Invoice) (string, bool) {
+	issues := h.reviewIssues(inv)
 	text := FormatInvoice(inv, issues)
 	saved, err := h.deps.Store.IsSaved(ctx, chatID, inv)
 	if err != nil {
@@ -407,13 +408,13 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
 	}
-	message, _ := h.invoiceMessage(ctx, chatID, edited, invoice.Validate(edited))
+	message, _ := h.invoiceMessage(ctx, chatID, edited)
 	h.sendReply(ctx, b, chatID, rec.Source.MessageID, message, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 }
 
 func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64) {
 	stoppedSetup := h.stopOnboarding(ctx, chatID)
-	_, found, err := h.deps.Store.Awaiting(ctx, chatID)
+	pending, found, err := h.deps.Store.Awaiting(ctx, chatID)
 	if err == nil && found {
 		err = h.deps.Store.ClearAwaiting(ctx, chatID)
 	}
@@ -422,7 +423,26 @@ func (h *handler) cancelCorrection(ctx context.Context, b *bot.Bot, chatID int64
 		h.logger.Error("no se pudo cancelar la corrección", "chat_id", chatID, "error", err)
 		h.send(ctx, b, chatID, StoreErrorMessage, nil)
 	case found:
-		h.send(ctx, b, chatID, CancelledMessage, nil)
+		rec, err := h.deps.Store.Get(ctx, chatID, pending.ID)
+		if err != nil {
+			h.send(ctx, b, chatID, StoreErrorMessage, nil)
+			return
+		}
+		text := CancelledMessage + "\n\n"
+		var keyboard *models.InlineKeyboardMarkup
+		switch rec.Status {
+		case store.StatusDraft:
+			text += "La factura sigue pendiente, sin guardar. Revisala y tocá Guardar cuando esté bien.\n\n"
+			message, _ := h.invoiceMessage(ctx, chatID, rec.Invoice)
+			text += message
+			keyboard = reviewKeyboard(rec.ID, rec.Invoice, rec.Source.FileID != "")
+		case store.StatusSaved:
+			text += "La factura sigue guardada.\n\n" + FormatInvoice(rec.Invoice, h.reviewIssues(rec.Invoice))
+			keyboard = savedKeyboard(rec.ID, rec.Source.FileID != "")
+		default:
+			text += "La factura ya no está pendiente ni guardada."
+		}
+		h.sendReply(ctx, b, chatID, rec.Source.MessageID, text, keyboard)
 	case stoppedSetup:
 		h.send(ctx, b, chatID, "Listo, cargás tu RUC después con /ruc 1234567-8.", nil)
 	default:
@@ -492,6 +512,7 @@ func (h *handler) send(ctx context.Context, b *bot.Bot, chatID int64, text strin
 // sendReply envía un mensaje citando otro (replyTo > 0): el usuario toca la cita y vuelve a la foto.
 // Si el mensaje citado ya no existe, Telegram manda el mensaje igual, sin la cita.
 func (h *handler) sendReply(ctx context.Context, b *bot.Bot, chatID int64, replyTo int, text string, keyboard *models.InlineKeyboardMarkup) error {
+	keyboard = h.bindKeyboard(ctx, chatID, keyboard)
 	params := &bot.SendMessageParams{ChatID: chatID, Text: telegramMessageText(text)}
 	if keyboard != nil {
 		params.ReplyMarkup = keyboard

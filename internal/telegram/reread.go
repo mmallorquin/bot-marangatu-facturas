@@ -57,7 +57,7 @@ func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonP
 	}
 	reply := &models.ReplyParameters{MessageID: press.messageID, AllowSendingWithoutReply: true}
 	caption := photoCaption(rec.Invoice)
-	keyboard := photoKeyboard(rec.ID, rec.Status == store.StatusDraft)
+	keyboard := h.bindKeyboard(ctx, press.chatID, photoKeyboard(rec.ID, rec.Status == store.StatusDraft))
 	var err error
 	if rec.Source.MimeType == pdfMimeType {
 		_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
@@ -120,7 +120,7 @@ func (h *handler) showReading(ctx context.Context, b *bot.Bot, press buttonPress
 		text += "\n\n" + SavedNote
 		keyboard = savedKeyboard(rec.ID, hasSource)
 	} else {
-		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice, invoice.Validate(rec.Invoice))
+		text, _ = h.invoiceMessage(ctx, press.chatID, rec.Invoice)
 		keyboard = reviewKeyboard(rec.ID, rec.Invoice, hasSource)
 	}
 	h.sendReply(ctx, b, press.chatID, replyTo, text, keyboard)
@@ -143,7 +143,7 @@ func (h *handler) handleRereadCallback(ctx context.Context, b *bot.Bot, query *m
 	ctx = operationContext(ctx, ch)
 	rec, err := h.deps.Store.Get(ctx, chatID, c.id)
 	switch {
-	case errors.Is(err, store.ErrNotFound) || (err == nil && rec.Status != store.StatusDraft):
+	case errors.Is(err, store.ErrNotFound):
 		ch.mu.Unlock()
 		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 		h.editKeyboard(ctx, b, press, noKeyboard())
@@ -152,6 +152,14 @@ func (h *handler) handleRereadCallback(ctx context.Context, b *bot.Bot, query *m
 		ch.mu.Unlock()
 		h.logger.Error("no se pudo leer la factura", "chat_id", chatID, "error", err)
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	case c.revision != invoiceRevision(rec):
+		h.refreshInvoice(ctx, b, press, rec)
+		ch.mu.Unlock()
+		return
+	case rec.Status != store.StatusDraft:
+		ch.mu.Unlock()
+		h.answer(ctx, b, press.queryID, NoLongerEditableAlert, false)
 		return
 	case rec.Source.FileID == "":
 		ch.mu.Unlock()
@@ -363,7 +371,7 @@ func (h *handler) adoptReread(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
-	text, _ := h.invoiceMessage(ctx, press.chatID, edited, invoice.Validate(edited))
+	text, _ := h.invoiceMessage(ctx, press.chatID, edited)
 	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
 	h.answer(ctx, b, press.queryID, RereadAppliedAnswer, false)
 }

@@ -64,7 +64,7 @@ func (h *handler) showPending(ctx context.Context, b *bot.Bot, chatID int64) {
 
 func (h *handler) classifyPending(ctx context.Context, chatID int64, drafts []store.Record) (ready []store.Record, review, duplicates int, err error) {
 	for _, rec := range drafts {
-		if !invoice.Clean(rec.Invoice) {
+		if !invoice.Clean(rec.Invoice) || len(h.reviewIssues(rec.Invoice)) > 0 {
 			review++
 			continue
 		}
@@ -85,15 +85,15 @@ func (h *handler) classifyPending(ctx context.Context, chatID int64, drafts []st
 // New arrivals or corrections require a new confirmation instead of expanding a batch.
 func pendingRevision(drafts []store.Record) string {
 	var ready []struct {
-		ID      int64
-		Invoice invoice.Invoice
+		ID       int64
+		Revision string
 	}
 	for _, rec := range drafts {
 		if invoice.Clean(rec.Invoice) {
 			ready = append(ready, struct {
-				ID      int64
-				Invoice invoice.Invoice
-			}{rec.ID, rec.Invoice})
+				ID       int64
+				Revision string
+			}{rec.ID, invoiceRevision(rec)})
 		}
 	}
 	data, _ := json.Marshal(ready)
