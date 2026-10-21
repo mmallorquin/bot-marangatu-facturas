@@ -10,7 +10,7 @@ import (
 type ChatOperations struct {
 	mu    sync.Mutex
 	chats map[int64]*chatOperation
-	reads chan struct{}
+	gate  *readGate
 }
 
 type chatOperation struct {
@@ -28,7 +28,7 @@ type readOperation struct {
 type chatContextKey struct{}
 
 func NewChatOperations() *ChatOperations {
-	return &ChatOperations{chats: make(map[int64]*chatOperation), reads: make(chan struct{}, 2)}
+	return &ChatOperations{chats: make(map[int64]*chatOperation), gate: newReadGate(readSlots)}
 }
 
 func (ops *ChatOperations) chat(chatID int64) *chatOperation {
@@ -49,6 +49,21 @@ func operationContext(ctx context.Context, c *chatOperation) context.Context {
 func currentOperation(ctx context.Context) *readOperation {
 	op, _ := ctx.Value(chatContextKey{}).(*readOperation)
 	return op
+}
+
+// beginRead registra una lectura del chat para poder cancelarla si el usuario borra sus datos.
+// Se llama con c.mu tomado; la función devuelta se llama al terminar, sin el bloqueo.
+func beginRead(ctx context.Context, c *chatOperation) (context.Context, func()) {
+	ctx = operationContext(ctx, c)
+	op := currentOperation(ctx)
+	ctx, cancel := context.WithCancel(ctx)
+	c.reads[op] = cancel
+	return ctx, func() {
+		cancel()
+		c.mu.Lock()
+		delete(c.reads, op)
+		c.mu.Unlock()
+	}
 }
 
 // withChat protege una operación corta: los accesos a SQLite y sus respuestas.

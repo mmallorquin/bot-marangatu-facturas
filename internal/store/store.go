@@ -118,6 +118,26 @@ CREATE TABLE IF NOT EXISTS events (
 	created_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
+
+-- Cada archivo recibido es un trabajo durable: se anota antes de descargarlo, guarda la
+-- referencia de Telegram (nunca los bytes) y la clave única evita leer dos veces una entrega repetida.
+CREATE TABLE IF NOT EXISTS jobs (
+	id             INTEGER PRIMARY KEY AUTOINCREMENT,
+	chat_id        INTEGER NOT NULL,
+	message_id     INTEGER NOT NULL,
+	file_unique_id TEXT    NOT NULL,
+	file_id        TEXT    NOT NULL,
+	kind           TEXT    NOT NULL CHECK (kind IN ('foto', 'pdf')),
+	mime_type      TEXT    NOT NULL,
+	origin         TEXT    NOT NULL CHECK (origin IN ('mensaje', 'album')),
+	state          TEXT    NOT NULL CHECK (state IN ('en_cola', 'descargando', 'leyendo', 'lista',
+		'error_descarga', 'error_lectura', 'incierta', 'cancelada')),
+	invoice_id     INTEGER NOT NULL DEFAULT 0, -- borrador o factura que salió de la lectura
+	created_at     TEXT    NOT NULL,
+	updated_at     TEXT    NOT NULL,
+	UNIQUE (chat_id, message_id, file_unique_id)
+);
+CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state);
 `
 
 // Draft es una factura recién leída.
@@ -127,6 +147,7 @@ type Draft struct {
 	Model    string
 	CostUSD  float64
 	Source   Source
+	JobID    int64 // trabajo de recepción que originó el borrador; se cierra junto con él
 }
 
 // Source es la referencia a la foto o PDF en Telegram. No es la imagen: solo permite
@@ -349,8 +370,13 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("serializando la factura normalizada: %w", err)
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("iniciando la transacción: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	now := timestamp()
-	res, err := s.db.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO invoices (chat_id, status, invoice_json, original_json, model, cost_usd, created_at, updated_at,
 			source_file_id, source_mime, source_message_id, source_rotation)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -359,7 +385,20 @@ func (s *Store) CreateDraft(ctx context.Context, chatID int64, d Draft) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("guardando el borrador: %w", err)
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	// Si el trabajo ya no existe (el usuario borró sus datos durante la lectura), no queda borrador.
+	if d.JobID > 0 {
+		if err := finishJob(ctx, tx, chatID, d.JobID, id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("confirmando el borrador: %w", err)
+	}
+	return id, nil
 }
 
 // Get devuelve una factura del chat.
@@ -523,7 +562,7 @@ func (s *Store) DeleteChat(ctx context.Context, chatID int64) (int, error) {
 		return 0, fmt.Errorf("borrando las facturas: %w", err)
 	}
 	deleted, _ := res.RowsAffected()
-	for _, table := range []string{"chat_settings", "exports", "export_requests", "presentations", "reminders", "events"} {
+	for _, table := range []string{"chat_settings", "exports", "export_requests", "presentations", "reminders", "events", "jobs"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE chat_id = ?", chatID); err != nil {
 			return 0, fmt.Errorf("borrando %s: %w", table, err)
 		}

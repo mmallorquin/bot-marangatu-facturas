@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
+	_ "modernc.org/sqlite" // para preparar una base dañada
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/config"
 )
@@ -117,10 +120,10 @@ func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 	default:
 		t.Fatal("no registró los comandos para elegirlos en Telegram")
 	}
-	if len(commands) != 4 {
-		t.Fatalf("el menú principal debe tener cuatro entradas: %+v", commands)
+	if len(commands) != 5 {
+		t.Fatalf("el menú principal debe tener cinco entradas: %+v", commands)
 	}
-	for _, name := range []string{"facturas", "exportar", "ajustes", "ayuda"} {
+	for _, name := range []string{"facturas", "exportar", "estado", "ajustes", "ayuda"} {
 		found := false
 		for _, command := range commands {
 			if command.Command == name && command.Description != "" {
@@ -141,5 +144,32 @@ func TestRunRegistersTelegramCommandMenu(t *testing.T) {
 		}
 	default:
 		t.Error("no habilitó el botón de menú de comandos")
+	}
+}
+
+func TestRunFailsWhenPendingFilesCannotBeRecovered(t *testing.T) {
+	// Arrange: una tabla jobs de una versión incompatible hace fallar la recuperación, no la apertura.
+	setValidEnv(t, "123456:ABC-token")
+	db, err := sql.Open("sqlite", os.Getenv(config.DatabasePathVar))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE jobs (state TEXT, updated_at TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	err = run(ctx, discardLogger(), bot.WithServerURL(server.URL), bot.WithSkipGetMe())
+
+	// Assert
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("error = %v: el arranque debía fallar sin esperar al bot", err)
 	}
 }

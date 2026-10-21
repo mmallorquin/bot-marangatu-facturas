@@ -86,6 +86,9 @@ func run(ctx context.Context, logger *slog.Logger, extraOpts ...bot.Option) erro
 	logger.Info("bot iniciado, esperando facturas (Ctrl+C para detener)",
 		"modelo", cfg.OpenRouterModel, "zdr", cfg.OpenRouterZDR, "razonamiento", cfg.ReasoningEffort,
 		"base", cfg.DatabasePath)
+	if err := telegram.RecoverJobs(ctx, b, deps); err != nil {
+		return err
+	}
 	go telegram.RunReminders(ctx, b, deps)
 	b.Start(ctx)
 	logger.Info("bot detenido")

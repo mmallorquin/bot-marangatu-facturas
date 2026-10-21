@@ -185,17 +185,13 @@ func photoOf(rec store.Record, press buttonPress) int {
 }
 
 func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
-	ctx, cancel := context.WithTimeout(ctx, processTimeout)
-	defer cancel()
-	select {
-	case h.deps.Operations.reads <- struct{}{}:
-		defer func() { <-h.deps.Operations.reads }()
-	case <-ctx.Done():
-		h.finishRead(ctx, func(ctx context.Context) {
-			h.sendReply(ctx, b, press.chatID, photoOf(rec, press), ReadErrorMessage, nil)
-		})
-		return
+	release, err := h.deps.Operations.gate.acquire(ctx, press.chatID)
+	if err != nil {
+		return // el usuario borró sus datos o el bot se apaga
 	}
+	defer release()
+	ctx, cancel := context.WithTimeout(ctx, h.readTimeout())
+	defer cancel()
 
 	data, err := downloadFile(ctx, b, rec.Source.FileID)
 	if err != nil {
