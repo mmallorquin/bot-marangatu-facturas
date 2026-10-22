@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -228,15 +229,44 @@ func photoUpdate() *models.Update {
 }
 
 func (h *harness) press(c callback) {
+	data, found := h.emittedCallback(c)
+	if !found && c.action == actionField {
+		h.press(callback{action: actionEdit, id: c.id})
+		data, found = h.emittedCallback(c)
+	}
+	if !found {
+		data = c.encode()
+	}
 	h.send(&models.Update{CallbackQuery: &models.CallbackQuery{
 		ID:   "cb",
 		From: models.User{ID: testChatID},
-		Data: c.encode(),
+		Data: data,
 		Message: models.MaybeInaccessibleMessage{
 			Type:    models.MaybeInaccessibleMessageTypeMessage,
 			Message: &models.Message{ID: 10, Chat: models.Chat{ID: testChatID, Type: models.ChatTypePrivate}},
 		},
 	}})
+}
+
+// Exercise the emitted protocol; raw legacy/stale scenarios use pressRaw.
+func (h *harness) emittedCallback(want callback) (string, bool) {
+	h.telegram.mu.Lock()
+	defer h.telegram.mu.Unlock()
+	for i := len(h.telegram.requests) - 1; i >= 0; i-- {
+		var kb models.InlineKeyboardMarkup
+		if json.Unmarshal([]byte(h.telegram.requests[i].markup), &kb) != nil {
+			continue
+		}
+		for _, row := range kb.InlineKeyboard {
+			for _, button := range row {
+				c, err := parseCallback(button.CallbackData)
+				if err == nil && c.action == want.action && c.id == want.id && c.field == want.field {
+					return button.CallbackData, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // pressRaw aprieta un botón cuyo callback no pertenece a una factura.
@@ -281,7 +311,7 @@ func TestPhotoIsReadAndShownWithButtons(t *testing.T) {
 	if len(sent) != 2 || sent[0].text != ReadingMessage {
 		t.Fatalf("mensajes = %+v", sent)
 	}
-	if !strings.Contains(sent[1].text, "80000519-8") || !strings.Contains(sent[1].markup, `"g:1"`) {
+	if !strings.Contains(sent[1].text, "80000519-8") || !strings.Contains(sent[1].markup, `"g:1:`) {
 		t.Errorf("la factura no se mostró con botones: %+v", sent[1])
 	}
 	if rec, err := h.store.Get(context.Background(), testChatID, 1); err != nil || rec.Status != store.StatusDraft {
@@ -354,7 +384,7 @@ func TestSaveButtonWarnsAboutDuplicates(t *testing.T) {
 	h.press(callback{action: actionSave, id: 2})
 
 	edits := h.telegram.byMethod("editMessageText")
-	if len(edits) != 2 || !strings.Contains(edits[1].text, DuplicateNote) || !strings.Contains(edits[1].markup, `"d:2"`) {
+	if len(edits) != 2 || !strings.Contains(edits[1].text, DuplicateNote) || !strings.Contains(edits[1].markup, `"d:2:`) {
 		t.Errorf("ediciones = %+v", edits)
 	}
 }
@@ -381,7 +411,7 @@ func TestEditAndBackButtonsSwitchKeyboards(t *testing.T) {
 	h.press(callback{action: actionBack, id: id})
 
 	edits := h.telegram.byMethod("editMessageReplyMarkup")
-	if len(edits) != 2 || !strings.Contains(edits[0].markup, `"f:1:total"`) || !strings.Contains(edits[1].markup, `"g:1"`) {
+	if len(edits) != 2 || !strings.Contains(edits[0].markup, `"f:1:total:`) || !strings.Contains(edits[1].markup, `"g:1:`) {
 		t.Errorf("teclados = %+v", edits)
 	}
 }
@@ -401,7 +431,7 @@ func TestCorrectingAFieldUpdatesTheInvoice(t *testing.T) {
 		t.Errorf("no pidió el valor: %q", asked.text)
 	}
 	updated := h.telegram.lastSent(t)
-	if !strings.Contains(updated.text, "Nueva Razón S.A.") || !strings.Contains(updated.markup, `"g:1"`) {
+	if !strings.Contains(updated.text, "Nueva Razón S.A.") || !strings.Contains(updated.markup, `"g:1:`) {
 		t.Errorf("no mostró la factura corregida con botones: %+v", updated)
 	}
 	rec, _ := h.store.Get(context.Background(), testChatID, id)
@@ -435,7 +465,7 @@ func TestCancelCommandStopsCorrection(t *testing.T) {
 
 	h.sendText("/cancelar")
 
-	if got := h.telegram.lastSent(t); got.text != CancelledMessage {
+	if got := h.telegram.lastSent(t); !strings.Contains(got.text, CancelledMessage) || !strings.Contains(got.text, "pendiente, sin guardar") {
 		t.Errorf("respuesta = %q", got.text)
 	}
 	if _, pending, _ := h.store.Awaiting(context.Background(), testChatID); pending {
@@ -455,7 +485,7 @@ func TestSummaryCommandShowsSavedInvoicesOfTheMonth(t *testing.T) {
 	}
 }
 
-func TestButtonsOnAlreadySavedInvoiceAreRemoved(t *testing.T) {
+func TestOldEditButtonOnSavedInvoiceRefreshesWithoutUnsave(t *testing.T) {
 	h := newHarness(t)
 	id := h.firstDraftID(t)
 	h.press(callback{action: actionSave, id: id})
@@ -463,8 +493,11 @@ func TestButtonsOnAlreadySavedInvoiceAreRemoved(t *testing.T) {
 	h.press(callback{action: actionEdit, id: id})
 
 	answers := h.telegram.byMethod("answerCallbackQuery")
-	if len(answers) != 2 || answers[1].text != NoLongerEditableAlert {
+	if len(answers) != 2 || !answers[1].alert || !strings.Contains(answers[1].text, "confirmá de nuevo") {
 		t.Errorf("respuestas = %+v", answers)
+	}
+	if rec, _ := h.store.Get(context.Background(), testChatID, id); rec.Status != store.StatusSaved {
+		t.Fatal("old edit unsaved invoice")
 	}
 }
 

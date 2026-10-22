@@ -102,6 +102,9 @@ func Validate(inv Invoice) []Issue {
 
 func validateIdentity(inv Invoice) []Issue {
 	var issues []Issue
+	if strings.TrimSpace(inv.IssuerName) == "" {
+		issues = append(issues, Issue{FieldIssuerName, "falta la razón social del emisor"})
+	}
 	if err := ValidateRUC(inv.IssuerRUC); err != nil {
 		issues = append(issues, Issue{FieldIssuerRUC, err.Error()})
 	}

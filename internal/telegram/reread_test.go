@@ -34,7 +34,7 @@ func TestViewPhotoResendsTheOriginalByFileID(t *testing.T) {
 	h.press(callback{action: actionPhoto, id: 1})
 
 	// Assert: la foto va por file_id (sin volver a bajarla) y cita el mensaje de la factura.
-	if !strings.Contains(read.markup, `"o:1"`) || !strings.Contains(read.markup, `"b:1"`) {
+	if !strings.Contains(read.markup, `"o:1"`) || !strings.Contains(read.markup, `"b:1:`) {
 		t.Errorf("faltan Ver foto / Releer: %s", read.markup)
 	}
 	photos := h.telegram.byMethod("sendPhoto")
@@ -42,7 +42,7 @@ func TestViewPhotoResendsTheOriginalByFileID(t *testing.T) {
 		t.Errorf("reenvío de la foto: %+v", photos)
 	}
 	if photo := photos[0]; !strings.Contains(photo.text, "📷 Foto de la factura") || !strings.Contains(photo.text, "001-001-0001234") ||
-		!strings.Contains(photo.markup, `"m:1"`) || !strings.Contains(photo.markup, `"b:1"`) {
+		!strings.Contains(photo.markup, `"m:1"`) || !strings.Contains(photo.markup, `"b:1:`) {
 		t.Errorf("la foto dice de qué factura es y ofrece volver a la lectura o releer: %+v", photo)
 	}
 	if h.telegram.requestedFileID != "grande" || len(h.reader.received) != 1 {
@@ -81,7 +81,7 @@ func TestRereadOffersTheFieldsThatDifferAndAppliesThem(t *testing.T) {
 	if len(h.reader.received) != 2 || h.reader.received[1].Focus != reader.FocusIdentity {
 		t.Fatalf("la relectura debería ir enfocada: %+v", h.reader.received)
 	}
-	for _, want := range []string{"Relectura 1 de 2", "80000519-1 → 80000519-8", "0001239 → 001-001-0001234", `"a:1:ruc_emisor"`, `"a:1:numero"`, `"a:1:todo"`} {
+	for _, want := range []string{"Relectura 1 de 2", "80000519-1 → 80000519-8", "0001239 → 001-001-0001234", `"a:1:ruc_emisor:`, `"a:1:numero:`, `"a:1:todo:`} {
 		if !strings.Contains(offer.text+offer.markup, want) {
 			t.Errorf("falta %q en la oferta: %+v", want, offer)
 		}
@@ -99,7 +99,7 @@ func TestRereadOffersTheFieldsThatDifferAndAppliesThem(t *testing.T) {
 	if rec.Invoice.IssuerRUC != "80000519-8" || rec.Invoice.Number != "001-001-0001239" || !rec.Corrected || rec.Rereads != 1 {
 		t.Errorf("registro = %+v", rec)
 	}
-	if !strings.Contains(applied.text, "RUC: 80000519-8") || !strings.Contains(applied.markup, `"g:1"`) {
+	if !strings.Contains(applied.text, "RUC: 80000519-8") || !strings.Contains(applied.markup, `"g:1:`) {
 		t.Errorf("después de aplicar vuelve la factura con sus botones: %+v", applied)
 	}
 	now := time.Now()
@@ -127,6 +127,7 @@ func TestRereadAdoptAllAndLimit(t *testing.T) {
 
 	h.press(callback{action: actionReread, id: 1}) // segunda: ahora coincide
 	same := h.telegram.lastSent(t).text
+	h.press(callback{action: actionShow, id: 1})   // obtener los botones de la revisión actual
 	h.press(callback{action: actionReread, id: 1}) // tercera: tope
 	answers := h.telegram.byMethod("answerCallbackQuery")
 	limit := answers[len(answers)-1]
@@ -148,7 +149,7 @@ func TestRereadWithoutSourceOrWhenTelegramLostThePhoto(t *testing.T) {
 	h.press(callback{action: actionReread, id: 1})
 	h.press(callback{action: actionPhoto, id: 1})
 	answers := h.telegram.byMethod("answerCallbackQuery")
-	if len(answers) != 2 || !strings.Contains(answers[0].text, "No tengo la foto") || !strings.Contains(answers[1].text, "No tengo la foto") {
+	if len(answers) != 2 || !strings.Contains(answers[0].text, "confirmá de nuevo") || !strings.Contains(answers[1].text, "No tengo la foto") {
 		t.Errorf("sin referencia a la foto: %+v", answers)
 	}
 
@@ -183,7 +184,7 @@ func TestRereadComparesEveryFieldIncludingAmounts(t *testing.T) {
 	rec, _ := h.store.Get(context.Background(), testChatID, 1)
 
 	// Assert
-	for _, want := range []string{"Gravada 10 %: 150.001 → 150.000", "Total: 150.001 → 150.000", "Razón social: Comercial Ejemplo S.A → Comercial Ejemplo S.A.", `"a:1:gravada_10"`} {
+	for _, want := range []string{"Gravada 10 %: 150.001 → 150.000", "Total: 150.001 → 150.000", "Razón social: Comercial Ejemplo S.A → Comercial Ejemplo S.A.", `"a:1:gravada_10:`} {
 		if !strings.Contains(offer.text+offer.markup, want) {
 			t.Errorf("falta %q en la oferta: %+v", want, offer)
 		}
@@ -201,7 +202,7 @@ func TestViewPhotoAndBackToTheReadingWorkOnASavedInvoice(t *testing.T) {
 	}
 	h.sendPhoto()
 	saved := h.telegram.lastSent(t)
-	if !strings.Contains(saved.text, AutoSavedNote) || !strings.Contains(saved.markup, `"o:1"`) || strings.Contains(saved.markup, `"b:1"`) {
+	if !strings.Contains(saved.text, AutoSavedNote) || !strings.Contains(saved.markup, `"o:1"`) || strings.Contains(saved.markup, `"b:1:`) {
 		t.Fatalf("la guardada ofrece Ver foto pero no Releer: %+v", saved)
 	}
 
@@ -219,11 +220,11 @@ func TestViewPhotoAndBackToTheReadingWorkOnASavedInvoice(t *testing.T) {
 		t.Errorf("no debería tocar los botones de la guardada: %+v", edits)
 	}
 	photos := h.telegram.byMethod("sendPhoto")
-	if len(photos) != 1 || !strings.Contains(photos[0].markup, `"m:1"`) || strings.Contains(photos[0].markup, `"b:1"`) {
+	if len(photos) != 1 || !strings.Contains(photos[0].markup, `"m:1"`) || strings.Contains(photos[0].markup, `"b:1:`) {
 		t.Errorf("foto de una guardada: %+v", photos)
 	}
 	reading := h.telegram.lastSent(t)
-	if !strings.Contains(reading.text, SavedNote) || !strings.Contains(reading.markup, `"u:1"`) || !strings.Contains(reading.markup, `"o:1"`) ||
+	if !strings.Contains(reading.text, SavedNote) || !strings.Contains(reading.markup, `"u:1:`) || !strings.Contains(reading.markup, `"o:1"`) ||
 		!strings.Contains(reading.replyTo, `"message_id":77`) {
 		t.Errorf("la lectura vuelve como guardada, con Deshacer y Ver foto, citando la foto: %+v", reading)
 	}
@@ -237,7 +238,7 @@ func TestBackToTheReadingOfADraftOffersTheReviewButtons(t *testing.T) {
 	h.press(callback{action: actionShow, id: 1})
 
 	reading := h.telegram.lastSent(t)
-	if !strings.Contains(reading.text, "80000519-8") || !strings.Contains(reading.markup, `"g:1"`) || !strings.Contains(reading.markup, `"b:1"`) ||
+	if !strings.Contains(reading.text, "80000519-8") || !strings.Contains(reading.markup, `"g:1:`) || !strings.Contains(reading.markup, `"b:1:`) ||
 		!strings.Contains(reading.replyTo, `"message_id":77`) {
 		t.Errorf("la lectura del borrador vuelve con Guardar y Releer, citando la foto: %+v", reading)
 	}
@@ -253,7 +254,7 @@ func TestViewPhotoIsOfferedAfterSavingByHandAndOnDuplicates(t *testing.T) {
 	h.sendPhoto() // la misma factura otra vez
 	h.press(callback{action: actionSave, id: 2})
 
-	if dup := lastEdit(t, h); !strings.Contains(dup.text, DuplicateNote) || !strings.Contains(dup.markup, `"d:2"`) || !strings.Contains(dup.markup, `"o:2"`) {
+	if dup := lastEdit(t, h); !strings.Contains(dup.text, DuplicateNote) || !strings.Contains(dup.markup, `"d:2:`) || !strings.Contains(dup.markup, `"o:2"`) {
 		t.Errorf("duplicada: %+v", dup)
 	}
 	h.press(callback{action: actionDiscard, id: 2})

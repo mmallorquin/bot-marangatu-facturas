@@ -16,6 +16,7 @@ func TestCallbackRoundTrip(t *testing.T) {
 		{action: actionEdit, id: 1},
 		{action: actionBack, id: 1},
 		{action: actionField, id: 99, field: invoice.FieldTotal},
+		{action: actionField, id: 99, field: invoice.FieldIssuerName, revision: "0123456789abcdef"},
 	}
 
 	for _, want := range cases {
@@ -34,7 +35,7 @@ func TestCallbackRoundTrip(t *testing.T) {
 func TestCallbackDataFitsTelegramLimit(t *testing.T) {
 	const telegramMaxCallbackBytes = 64
 	for _, field := range invoice.EditableFields {
-		data := callback{action: actionField, id: 1<<62 - 1, field: field}.encode()
+		data := callback{action: actionField, id: 1<<63 - 1, field: field, revision: "0123456789abcdef"}.encode()
 		if len(data) > telegramMaxCallbackBytes {
 			t.Errorf("%q ocupa %d bytes", data, len(data))
 		}

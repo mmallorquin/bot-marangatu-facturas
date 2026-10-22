@@ -21,7 +21,7 @@ func TestAutoSaveSavesCleanInvoicesAndCanBeUndone(t *testing.T) {
 	auto := h.telegram.lastSent(t)
 
 	// Assert: se guardó sola, con el botón de deshacer.
-	if !strings.Contains(auto.text, AutoSavedNote) || !strings.Contains(auto.markup, `"u:1"`) {
+	if !strings.Contains(auto.text, AutoSavedNote) || !strings.Contains(auto.markup, `"u:1:`) {
 		t.Fatalf("debería guardarse sola con Deshacer: %+v", auto)
 	}
 	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved {
@@ -34,7 +34,7 @@ func TestAutoSaveSavesCleanInvoicesAndCanBeUndone(t *testing.T) {
 	// Assert: vuelve a borrador con los botones de siempre, y se puede guardar de nuevo.
 	edits := h.telegram.byMethod("editMessageText")
 	undone := edits[len(edits)-1]
-	if !strings.Contains(undone.text, UndoneNote) || !strings.Contains(undone.markup, `"g:1"`) {
+	if !strings.Contains(undone.text, UndoneNote) || !strings.Contains(undone.markup, `"g:1:`) {
 		t.Errorf("después de deshacer: %+v", undone)
 	}
 	h.press(callback{action: actionSave, id: 1})
@@ -99,7 +99,7 @@ func TestAutoSaveIsOnByDefaultForANewChat(t *testing.T) {
 
 	sent := h.telegram.byMethod("sendMessage")
 	last := sent[len(sent)-1]
-	if !strings.Contains(last.text, AutoSavedNote) || !strings.Contains(last.markup, `"u:1"`) || !strings.Contains(last.markup, `"o:1"`) {
+	if !strings.Contains(last.text, AutoSavedNote) || !strings.Contains(last.markup, `"u:1:`) || !strings.Contains(last.markup, `"o:1"`) {
 		t.Errorf("una factura que cierra se guarda sola, con Deshacer y Ver foto: %+v", last)
 	}
 	if !strings.Contains(last.replyTo, `"message_id":90`) {

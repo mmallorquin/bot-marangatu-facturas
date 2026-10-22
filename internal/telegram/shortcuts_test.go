@@ -37,10 +37,10 @@ func TestWrongRUCCheckDigitOffersOneTapFix(t *testing.T) {
 	h.press(callback{action: actionSave, id: 1})
 
 	// Assert
-	if !strings.Contains(read.text, "debería ser 8") || !strings.Contains(read.markup, "Usar RUC 80000519-8") || !strings.Contains(read.markup, `"r:1"`) {
+	if !strings.Contains(read.text, "debería ser 8") || !strings.Contains(read.markup, "Usar RUC 80000519-8") || !strings.Contains(read.markup, `"r:1:`) {
 		t.Errorf("debería avisar y ofrecer el RUC corregido: %+v", read)
 	}
-	if !strings.Contains(fixed.text, "RUC: 80000519-8") || !strings.Contains(fixed.text, "coherentes") || strings.Contains(fixed.markup, `"r:1"`) {
+	if !strings.Contains(fixed.text, "RUC: 80000519-8") || !strings.Contains(fixed.text, "coherentes") || strings.Contains(fixed.markup, `"r:1:`) {
 		t.Errorf("después del atajo la factura cierra y el botón desaparece: %+v", fixed)
 	}
 	rec, _ := h.store.Get(context.Background(), testChatID, 1)
@@ -70,10 +70,10 @@ func TestBadCDCWarnsButDoesNotBlockAndCanBeRemovedOrTyped(t *testing.T) {
 	cleared := edits[len(edits)-1]
 
 	// Assert
-	if !strings.Contains(read.text, "44 dígitos") || !strings.Contains(read.markup, `"q:1"`) || !strings.Contains(read.text, "factura electrónica") {
+	if !strings.Contains(read.text, "44 dígitos") || !strings.Contains(read.markup, `"q:1:`) || !strings.Contains(read.text, "factura electrónica") {
 		t.Errorf("debería avisar del CDC, ofrecer quitarlo y tratarla como electrónica mientras tanto: %+v", read)
 	}
-	if !strings.Contains(cleared.text, CDCClearedNote) || strings.Contains(cleared.text, "44 dígitos") || strings.Contains(cleared.markup, `"q:1"`) {
+	if !strings.Contains(cleared.text, CDCClearedNote) || strings.Contains(cleared.text, "44 dígitos") || strings.Contains(cleared.markup, `"q:1:`) {
 		t.Errorf("sin CDC no hay aviso ni botón: %+v", cleared)
 	}
 	rec, _ := h.store.Get(context.Background(), testChatID, 1)
@@ -90,7 +90,7 @@ func TestBadCDCWarnsButDoesNotBlockAndCanBeRemovedOrTyped(t *testing.T) {
 	typed := h.telegram.lastSent(t).text
 
 	// Assert
-	if !strings.Contains(fields[len(fields)-1].markup, `"f:1:cdc"`) {
+	if !strings.Contains(fields[len(fields)-1].markup, `"f:1:cdc:`) {
 		t.Errorf("el CDC debería estar entre los campos corregibles: %s", fields[len(fields)-1].markup)
 	}
 	if !strings.Contains(asked, "44 dígitos") {
@@ -143,7 +143,7 @@ func TestCDCConfirmsTheRUCCheckDigitAutomatically(t *testing.T) {
 	read := h.telegram.lastSent(t)
 
 	// Assert: corregido solo, con aviso, sin botón de RUC, y el original conserva lo leído.
-	if !strings.Contains(read.text, "RUC: 80000519-8") || !strings.Contains(read.text, RUCFromCDCNote) || strings.Contains(read.markup, `"r:1"`) {
+	if !strings.Contains(read.text, "RUC: 80000519-8") || !strings.Contains(read.text, RUCFromCDCNote) || strings.Contains(read.markup, `"r:1:`) {
 		t.Errorf("debería corregir el RUC con el CDC: %+v", read)
 	}
 	rec, _ := h.store.Get(context.Background(), testChatID, 1)

@@ -29,16 +29,23 @@ const (
 
 // listCallback es un botón de /facturas: l:<acción>:<id>:<período>.
 type listCallback struct {
-	action string
-	id     int64
-	period string // para volver a mostrar la lista después de borrar
+	action   string
+	id       int64
+	period   string // para volver a mostrar la lista después de borrar
+	revision string
 }
 
 func (c listCallback) encode() string {
+	if c.revision != "" {
+		revision := c.revision
+		c.revision = ""
+		return c.encode() + ":" + revision
+	}
 	return fmt.Sprintf("%s:%s:%d:%s", listCallbackPrefix, c.action, c.id, c.period)
 }
 
 func parseListCallback(data string) (listCallback, error) {
+	data, revision := splitRevision(data)
 	parts := strings.Split(data, ":")
 	if len(parts) != 4 || parts[0] != listCallbackPrefix ||
 		!slices.Contains([]string{listActionAsk, listActionConfirm, listActionCancel}, parts[1]) {
@@ -51,7 +58,7 @@ func parseListCallback(data string) (listCallback, error) {
 	if _, err := marangatu.ParsePeriod(parts[3]); err != nil {
 		return listCallback{}, errInvalidCallback
 	}
-	return listCallback{action: parts[1], id: id, period: parts[3]}, nil
+	return listCallback{action: parts[1], id: id, period: parts[3], revision: revision}, nil
 }
 
 func (h *handler) listInvoices(ctx context.Context, b *bot.Bot, chatID int64, text string) {
@@ -115,6 +122,15 @@ func (h *handler) askDelete(ctx context.Context, b *bot.Bot, press buttonPress, 
 }
 
 func (h *handler) confirmDelete(ctx context.Context, b *bot.Bot, press buttonPress, c listCallback) {
+	rec, getErr := h.deps.Store.Get(ctx, press.chatID, c.id)
+	if getErr != nil {
+		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
+		return
+	}
+	if c.revision != invoiceRevision(rec) {
+		h.askDelete(ctx, b, press, c)
+		return
+	}
 	err := h.deps.Store.DeleteSaved(ctx, press.chatID, c.id)
 	switch {
 	case errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrNotSaved):
