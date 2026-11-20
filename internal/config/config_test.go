@@ -120,3 +120,20 @@ func TestLoadFailsOnMissingOrInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadReadsOptionalAdminChat(t *testing.T) {
+	env := map[string]string{TokenEnvVar: "t", OpenRouterKeyVar: "k"}
+	get := func(key string) string { return env[key] }
+
+	if cfg, err := Load(get); err != nil || cfg.AdminChatID != 0 {
+		t.Errorf("sin ADMIN_CHAT_ID no se avisa a nadie: %+v, %v", cfg.AdminChatID, err)
+	}
+	env[AdminChatVar] = " 123456789 "
+	if cfg, err := Load(get); err != nil || cfg.AdminChatID != 123456789 {
+		t.Errorf("ADMIN_CHAT_ID = %d, %v", cfg.AdminChatID, err)
+	}
+	env[AdminChatVar] = "mi-usuario"
+	if _, err := Load(get); !errors.Is(err, ErrInvalidAdminChat) {
+		t.Errorf("un valor que no es un número de chat debe frenar el arranque: %v", err)
+	}
+}

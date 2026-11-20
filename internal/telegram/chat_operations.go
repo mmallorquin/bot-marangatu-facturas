@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // ChatOperations serializa cambios por chat y limita las lecturas externas.
@@ -11,6 +12,8 @@ type ChatOperations struct {
 	mu    sync.Mutex
 	chats map[int64]*chatOperation
 	gate  *readGate
+	// lastAdminAlert evita repetir el aviso al administrador en cada lectura que falla.
+	lastAdminAlert time.Time
 }
 
 type chatOperation struct {

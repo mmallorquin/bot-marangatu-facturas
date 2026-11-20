@@ -14,6 +14,7 @@ const (
 	TokenEnvVar        = "TELEGRAM_BOT_TOKEN"
 	OpenRouterKeyVar   = "OPENROUTER_API_KEY"
 	OpenRouterModelVar = "OPENROUTER_MODEL"
+	AdminChatVar       = "ADMIN_CHAT_ID"
 	OpenRouterZDRVar   = "OPENROUTER_ZDR"
 	ReasoningVar       = "OPENROUTER_REASONING"
 	DatabasePathVar    = "DATABASE_PATH"
@@ -38,6 +39,7 @@ var (
 	ErrMissingOpenRouterKey = errors.New("falta la API key de OpenRouter")
 	ErrInvalidZDR           = errors.New("valor inválido para OPENROUTER_ZDR")
 	ErrInvalidReasoning     = errors.New("valor inválido para OPENROUTER_REASONING")
+	ErrInvalidAdminChat     = errors.New("valor inválido para ADMIN_CHAT_ID")
 )
 
 // Config es la configuración del bot. Se pasa por valor para que nadie la modifique.
@@ -48,6 +50,7 @@ type Config struct {
 	OpenRouterZDR    bool   // true: solo proveedores que no guardan las facturas
 	ReasoningEffort  string // cuánto "piensa" el modelo; vacío = su valor por defecto
 	DatabasePath     string // archivo SQLite con las facturas
+	AdminChatID      int64  // chat de Telegram que recibe los avisos de falla del servicio; 0 = nadie
 }
 
 // Load arma la configuración usando getenv (normalmente os.Getenv).
@@ -88,6 +91,14 @@ func Load(getenv func(string) string) (Config, error) {
 		dbPath = DefaultDatabasePath
 	}
 
+	var adminChat int64
+	if raw := read(AdminChatVar); raw != "" {
+		adminChat, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || adminChat <= 0 {
+			return Config{}, fmt.Errorf("%w: usá el número de tu chat con el bot", ErrInvalidAdminChat)
+		}
+	}
+
 	return Config{
 		TelegramBotToken: token,
 		OpenRouterAPIKey: apiKey,
@@ -95,6 +106,7 @@ func Load(getenv func(string) string) (Config, error) {
 		OpenRouterZDR:    zdr,
 		ReasoningEffort:  effort,
 		DatabasePath:     dbPath,
+		AdminChatID:      adminChat,
 	}, nil
 }
 

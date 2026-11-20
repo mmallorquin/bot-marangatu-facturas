@@ -138,7 +138,7 @@ Al exportar por primera vez se pide el RUC (lo escribís tal cual), los impuesto
 de registro con botones; después se retoma el período solicitado. Elegí la obligación que figure activa en tu RUC en Marangatu.
 El botón **No sé** explica dónde consultarla; el bot no la deduce de los impuestos ni consulta tu cuenta.
 
-1. Mandás la foto de la factura o el PDF: una factura por archivo. Podés mandar varias fotos juntas, como álbum: las que se guardan solas se confirman en una línea y, cuando termina el último archivo, el bot te muestra de a una las que hay que revisar. Separá un PDF que reúna varias facturas.
+1. Mandás la foto de la factura o el PDF: una factura por archivo. Cada chat puede mandar hasta 300 archivos por día. Podés mandar varias fotos juntas, como álbum: las que se guardan solas se confirman en una línea y, cuando termina el último archivo, el bot te muestra de a una las que hay que revisar. Separá un PDF que reúna varias facturas.
 2. El bot la lee y te la muestra con tres botones:
 
    ```
@@ -309,7 +309,11 @@ go test -race -cover ./...
 - Para capturas y demos, usá facturas de prueba o tapá RUC, nombres y montos.
 - Las fotos no se guardan: se descargan en memoria, se envían al modelo y se descartan. El bot conserva
   solo el identificador del archivo en Telegram (`file_id`), para que con **Ver foto** y **Releer** puedas
-  volver a verla o pedir una segunda lectura. Se borra junto con la factura y con `/borrar_mis_datos`.
+  volver a verla o pedir una segunda lectura.
+- Descartar o quitar una factura la saca de tus registros al momento; sus datos y la referencia a la
+  foto se eliminan de la base a los 30 días. `/borrar_mis_datos` elimina todo al momento.
+- Los respaldos del servidor se hacen antes de cada actualización y se conservan los 10 más nuevos:
+  una copia de tus datos puede seguir en un respaldo hasta que rote.
 - Cada pedido a OpenRouter va con `data_collection: "deny"` y, por defecto, `zdr: true`:
   solo se usan proveedores que no guardan ni entrenan con tus facturas.
 

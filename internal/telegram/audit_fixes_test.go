@@ -2,10 +2,12 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/reader"
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/store"
@@ -175,5 +177,76 @@ func TestCurrencyWrittenAsGsIsAccepted(t *testing.T) {
 
 	if h.status(t, 1) != store.StatusSaved {
 		t.Errorf("\"Gs\" es guaraníes: la factura debía cerrar y guardarse")
+	}
+}
+
+// quotaError falla como OpenRouter cuando la cuenta se queda sin saldo.
+type quotaError struct{}
+
+func (quotaError) Error() string          { return "OpenRouter respondió 402" }
+func (quotaError) Kind() reader.ErrorKind { return reader.ErrorQuota }
+func (quotaError) Retryable() bool        { return false }
+func (quotaError) UserMessage() string    { return "El servicio de lectura no tiene saldo disponible." }
+
+func TestAdminIsAlertedOncePerHourWhenReadsFailForLackOfCredit(t *testing.T) {
+	// Arrange
+	const adminChat = int64(999)
+	h := newHarness(t)
+	h.reader.err = quotaError{}
+	h.withHandler(Deps{Reader: h.reader, AdminChatID: adminChat, Now: h.now})
+
+	// Act: dos lecturas fallan seguidas y otra más de una hora después.
+	h.sendPhoto()
+	h.sendPhoto()
+	alertsSoon := h.messagesTo(adminChat)
+	h.clock = h.clock.Add(61 * time.Minute)
+	h.sendPhoto()
+
+	// Assert
+	if len(alertsSoon) != 1 || !strings.Contains(alertsSoon[0].text, "saldo") {
+		t.Fatalf("avisos al administrador = %+v: se esperaba uno solo, por saldo", alertsSoon)
+	}
+	if got := len(h.messagesTo(adminChat)); got != 2 {
+		t.Errorf("pasada una hora se vuelve a avisar: %d avisos", got)
+	}
+}
+
+func TestOrdinaryReadFailuresDoNotAlertTheAdmin(t *testing.T) {
+	const adminChat = int64(999)
+	h := newHarness(t)
+	h.reader.err = fmt.Errorf("foto ilegible")
+	h.withHandler(Deps{Reader: h.reader, AdminChatID: adminChat})
+
+	h.sendPhoto()
+
+	if got := h.messagesTo(adminChat); len(got) != 0 {
+		t.Errorf("una foto ilegible no es un problema del servicio: %+v", got)
+	}
+}
+
+func TestDiscardedInvoicesAreErasedAfterTheRetention(t *testing.T) {
+	h := newHarness(t)
+	h.sendPhoto()
+	h.sendSecondPhoto()
+	h.press(callback{action: actionDiscard, id: 1})
+	ctx := context.Background()
+
+	// Recién descartada, sigue (se puede haber descartado por error).
+	if err := h.store.PurgeRemoved(ctx, store.RemovedRetention); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.Get(ctx, testChatID, 1); err != nil {
+		t.Fatalf("una factura recién descartada todavía no se elimina: %v", err)
+	}
+
+	// Pasado el plazo, se elimina de verdad; la pendiente no se toca.
+	if err := h.store.PurgeRemoved(ctx, -time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.Get(ctx, testChatID, 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("la descartada debía eliminarse de la base: %v", err)
+	}
+	if h.status(t, 2) != store.StatusDraft {
+		t.Error("la pendiente no se toca")
 	}
 }

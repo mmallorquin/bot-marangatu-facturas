@@ -34,6 +34,9 @@ const (
 
 	// JobRetention es cuánto se conserva la referencia de un archivo ya terminado.
 	JobRetention = 30 * 24 * time.Hour
+	// RemovedRetention es cuánto se conserva una factura descartada o quitada antes de eliminarla
+	// de la base: da margen para un error del usuario sin guardar sus datos para siempre.
+	RemovedRetention = 30 * 24 * time.Hour
 )
 
 // ErrJobGone indica que el trabajo ya no existe o no está en el estado esperado
@@ -223,6 +226,18 @@ func (s *Store) PruneJobs(ctx context.Context, maxAge time.Duration) error {
 		cutoff, JobQueued, JobDownloading, JobReading)
 	if err != nil {
 		return fmt.Errorf("limpiando archivos viejos: %w", err)
+	}
+	return nil
+}
+
+// PurgeRemoved elimina de la base las facturas descartadas o quitadas hace más de maxAge,
+// con sus datos y la referencia a la foto.
+func (s *Store) PurgeRemoved(ctx context.Context, maxAge time.Duration) error {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM invoices WHERE status IN (?, ?) AND updated_at < ?`,
+		StatusDiscarded, StatusDeleted, cutoff)
+	if err != nil {
+		return fmt.Errorf("eliminando facturas descartadas: %w", err)
 	}
 	return nil
 }

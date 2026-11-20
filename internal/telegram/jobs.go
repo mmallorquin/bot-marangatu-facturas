@@ -155,6 +155,7 @@ func (h *handler) reportDownloadFailure(ctx context.Context, b *bot.Bot, job sto
 // pudo haber cobrado: queda incierto y se pide decidir en vez de dar por fallida la lectura.
 func (h *handler) reportReadFailure(ctx context.Context, b *bot.Bot, job store.Job, err error, seconds float64, timedOut bool) {
 	h.logger.Error("no se pudo leer la factura", "chat_id", job.ChatID, "error", err)
+	h.alertAdmin(ctx, b, err)
 	h.track(ctx, job.ChatID, store.Event{Kind: store.EventReadError, Detail: store.EventDetailAI, Seconds: seconds})
 	if timedOut {
 		h.failJobQuietly(ctx, job, store.JobReading, store.JobUncertain)
@@ -163,6 +164,42 @@ func (h *handler) reportReadFailure(ctx context.Context, b *bot.Bot, job store.J
 	}
 	h.failJobQuietly(ctx, job, store.JobReading, store.JobFailedRead)
 	h.sendReply(ctx, b, job.ChatID, job.MessageID, readFailureMessage(err), retryKeyboard([]numberedJob{{job: job}}))
+}
+
+// adminAlertEvery es el mínimo entre dos avisos al administrador.
+const adminAlertEvery = time.Hour
+
+// alertAdmin avisa al administrador cuando una lectura falla por saldo o configuración: son fallas
+// del servicio, afectan a todos y el usuario no puede resolverlas. Sin esto solo quedan en el log.
+func (h *handler) alertAdmin(ctx context.Context, b *bot.Bot, err error) {
+	var failure reader.ClassifiedError
+	if h.deps.AdminChatID == 0 || !errors.As(err, &failure) {
+		return
+	}
+	cause := ""
+	switch failure.Kind() {
+	case reader.ErrorQuota:
+		cause = "OpenRouter no tiene saldo"
+	case reader.ErrorConfiguration:
+		cause = "OpenRouter rechaza la configuración (clave o modelo)"
+	default:
+		return
+	}
+	ops := h.deps.Operations
+	ops.mu.Lock()
+	now := h.deps.Now()
+	due := now.Sub(ops.lastAdminAlert) >= adminAlertEvery
+	if due {
+		ops.lastAdminAlert = now
+	}
+	ops.mu.Unlock()
+	if !due {
+		return
+	}
+	text := "🚨 Las lecturas de facturas están fallando: " + cause + ". Nadie puede cargar facturas hasta resolverlo."
+	if err := h.send(ctx, b, h.deps.AdminChatID, text, nil); err != nil {
+		h.logger.Error("no se pudo avisar al administrador", "error", Redact(err, h.deps.Token))
+	}
 }
 
 // advanceOrFail mueve el trabajo de estado. Si la base falla con el trabajo vivo, lo cierra como

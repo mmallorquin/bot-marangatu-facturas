@@ -13,6 +13,8 @@ WorkingDirectory=/var/lib/bot-marangatu
 EnvironmentFile=/etc/bot-marangatu.env
 Environment=DATABASE_PATH=/var/lib/bot-marangatu/facturas.db
 Environment=GOMEMLIMIT=192MiB
+# Tope duro: la VM es chica y aloja otro servicio. Si el bot lo pasa, systemd lo reinicia solo a él.
+MemoryMax=400M
 ExecStart=/opt/bot-marangatu/bot
 Restart=on-failure
 RestartSec=15

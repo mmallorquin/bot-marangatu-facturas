@@ -211,6 +211,33 @@ class DeployTests(unittest.TestCase):
                 self.assertEqual(connection.execute("PRAGMA quick_check").fetchone(), ("ok",))
         self.assertEqual((backups[0].parent / "bot").read_bytes(), b"old bot")
 
+    def test_successful_deploy_keeps_only_the_latest_backups(self):
+        # Cada respaldo guarda la base completa: sin tope se acumulan y conservan datos ya borrados.
+        # El más viejo tiene la revisión que ordena última: se elige por fecha, no por nombre.
+        self.paths.backups.mkdir()
+        (self.paths.backups / "pre-update-ffffffffffff-20260101T000000Z-x").mkdir()
+        for day in range(2, 13):
+            (self.paths.backups / f"pre-update-aaaaaaaaaaaa-202601{day:02d}T000000Z-x").mkdir()
+        (self.paths.backups / "notas-del-administrador").mkdir()
+
+        deploy.deploy_release(package(release_files()), self.paths, LocalService(self.paths.target))
+
+        kept = sorted(path.name for path in self.paths.backups.glob("pre-update-*"))
+        self.assertEqual(len(kept), deploy.KEEP_BACKUPS)
+        self.assertNotIn("pre-update-ffffffffffff-20260101T000000Z-x", kept)
+        self.assertIn("pre-update-aaaaaaaaaaaa-20260112T000000Z-x", kept)
+        self.assertTrue((self.paths.backups / "notas-del-administrador").exists())
+
+    def test_failed_deploy_does_not_remove_any_backup(self):
+        self.paths.backups.mkdir()
+        for day in range(1, 13):
+            (self.paths.backups / f"pre-update-aaaaaaaaaaaa-202601{day:02d}T000000Z-x").mkdir()
+
+        with self.assertRaises(RuntimeError):
+            deploy.deploy_release(package(release_files()), self.paths, LocalService(self.paths.target, reject_new=True))
+
+        self.assertEqual(len(list(self.paths.backups.glob("pre-update-*"))), 13)
+
     def test_failed_start_restores_all_previous_executables_and_revision(self):
         service = LocalService(self.paths.target, reject_new=True)
         with self.assertRaises(RuntimeError):

@@ -71,6 +71,7 @@ type InvoiceStore interface {
 	Jobs(ctx context.Context, chatID int64, limit int) ([]store.Job, error)
 	RecoverJobs(ctx context.Context) (requeued, uncertain []store.Job, err error)
 	PruneJobs(ctx context.Context, maxAge time.Duration) error
+	PurgeRemoved(ctx context.Context, maxAge time.Duration) error
 }
 
 // Deps son las dependencias del handler.
@@ -86,6 +87,9 @@ type Deps struct {
 	ReadTimeout time.Duration
 	// DailyFileLimit es cuántos archivos acepta un chat cada 24 horas. Vacío, vale defaultDailyFileLimit.
 	DailyFileLimit int
+	// AdminChatID es el chat que recibe el aviso cuando las lecturas fallan por saldo o configuración.
+	// Vacío, no se avisa a nadie.
+	AdminChatID int64
 }
 
 // NewHandler devuelve el handler que responde a mensajes y botones.
