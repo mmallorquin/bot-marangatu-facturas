@@ -91,6 +91,17 @@ func (s *Store) EnqueueJob(ctx context.Context, j Job) (job Job, created bool, e
 	return job, inserted == 1, nil
 }
 
+// CountJobsSince cuenta los archivos que el chat mandó desde since: es la base del cupo diario.
+func (s *Store) CountJobsSince(ctx context.Context, chatID int64, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs WHERE chat_id = ? AND created_at >= ?`,
+		chatID, since.UTC().Format(time.RFC3339)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("contando los archivos del chat: %w", err)
+	}
+	return n, nil
+}
+
 // AdvanceJob mueve un trabajo de un estado a otro. Falla con ErrJobGone si el trabajo no
 // está en el estado from: así un trabajo borrado o ya movido no se vuelve a tocar.
 func (s *Store) AdvanceJob(ctx context.Context, chatID, id int64, from, to JobState) error {

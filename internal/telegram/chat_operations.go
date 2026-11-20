@@ -19,6 +19,7 @@ type chatOperation struct {
 	reads       map[*readOperation]context.CancelFunc
 	deleteToken string
 	batch       batchProgress
+	rereading   map[int64]bool // facturas con una relectura en curso: otro toque no paga otra
 }
 
 type readOperation struct {
@@ -37,7 +38,7 @@ func (ops *ChatOperations) chat(chatID int64) *chatOperation {
 	defer ops.mu.Unlock()
 	c := ops.chats[chatID]
 	if c == nil {
-		c = &chatOperation{reads: make(map[*readOperation]context.CancelFunc)}
+		c = &chatOperation{reads: make(map[*readOperation]context.CancelFunc), rereading: make(map[int64]bool)}
 		ops.chats[chatID] = c
 	}
 	return c

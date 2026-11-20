@@ -23,6 +23,7 @@ const (
 	retryJobCallback = "jr"
 
 	DownloadErrorMessage = "😕 No pude descargar el archivo desde Telegram. Probá de nuevo o mandalo otra vez."
+	DailyLimitMessage    = "🚦 Hoy ya recibí %d archivos de este chat, que es el máximo por día. Mandá este mañana."
 	ReadTimeoutMessage   = "⏳ La lectura tardó demasiado y no sé si se llegó a cobrar. " +
 		"Mirá /pendientes y, si la factura no está, tocá Reintentar."
 	RetryingAnswer = "⏳ Reintentando…"
@@ -52,6 +53,28 @@ func sourceOf(job store.Job, rotation int) store.Source {
 	return store.Source{FileID: job.FileID, MimeType: job.MimeType, MessageID: job.MessageID, Rotation: rotation}
 }
 
+// defaultDailyFileLimit protege el saldo de lectura de un abuso: una persona no llega a esta cantidad
+// en un día, y un script que manda fotos sin parar sí. Cada lectura es una llamada paga.
+const defaultDailyFileLimit = 300
+
+func (h *handler) dailyFileLimit() int {
+	if h.deps.DailyFileLimit > 0 {
+		return h.deps.DailyFileLimit
+	}
+	return defaultDailyFileLimit
+}
+
+// overDailyLimit indica si el chat ya mandó su cupo de archivos en las últimas 24 horas.
+// Si la base falla no se frena a nadie: el cupo es una protección, no un requisito.
+func (h *handler) overDailyLimit(ctx context.Context, chatID int64) bool {
+	n, err := h.deps.Store.CountJobsSince(ctx, chatID, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		h.logger.Error("no se pudo contar los archivos del chat", "chat_id", chatID, "error", err)
+		return false
+	}
+	return n >= h.dailyFileLimit()
+}
+
 func (h *handler) readTimeout() time.Duration {
 	if h.deps.ReadTimeout > 0 {
 		return h.deps.ReadTimeout
@@ -65,10 +88,12 @@ func (h *handler) readTimeout() time.Duration {
 // en el primer caso ya no existe; en el segundo se retoma al arrancar.
 func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
 	defer h.closeBatch(ctx, b, job.ChatID) // corre último, después de responder por este archivo
-	release, err := h.deps.Operations.gate.acquire(ctx, job.ChatID)
+	acquired, err := h.deps.Operations.gate.acquire(ctx, job.ChatID)
 	if err != nil {
 		return
 	}
+	// El lector se suelta apenas termina la lectura: responder puede esperar al chat y no usa el lector.
+	release := sync.OnceFunc(acquired)
 	defer release()
 	state := store.JobQueued
 	defer h.recoverJobPanic(ctx, b, job, &state)
@@ -98,15 +123,19 @@ func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
 	start := time.Now()
 	result, err := h.deps.Reader.Read(readCtx, reader.Image{Data: data, MimeType: job.MimeType})
 	if err != nil {
+		release()
 		if ctx.Err() != nil {
 			return // la lectura queda en leyendo y, al arrancar, como incierta
 		}
+		// El plazo también puede vencer en el cliente del proveedor, antes que el del trabajo.
+		timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(readCtx.Err(), context.DeadlineExceeded)
 		h.finishRead(ctx, func(ctx context.Context) {
-			h.reportReadFailure(ctx, b, job, err, time.Since(start).Seconds(), errors.Is(readCtx.Err(), context.DeadlineExceeded))
+			h.reportReadFailure(ctx, b, job, err, time.Since(start).Seconds(), timedOut)
 		})
 		return
 	}
 	result = h.secondLook(readCtx, job, data, result)
+	release()
 	if ctx.Err() != nil {
 		return // apagado o borrado durante la segunda lectura
 	}
@@ -133,7 +162,7 @@ func (h *handler) reportReadFailure(ctx context.Context, b *bot.Bot, job store.J
 		return
 	}
 	h.failJobQuietly(ctx, job, store.JobReading, store.JobFailedRead)
-	h.sendReply(ctx, b, job.ChatID, job.MessageID, readFailureMessage(err), nil)
+	h.sendReply(ctx, b, job.ChatID, job.MessageID, readFailureMessage(err), retryKeyboard([]numberedJob{{job: job}}))
 }
 
 // advanceOrFail mueve el trabajo de estado. Si la base falla con el trabajo vivo, lo cierra como

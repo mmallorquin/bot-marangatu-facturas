@@ -150,6 +150,9 @@ func TestReadSendsImagePrivacyAndSchema(t *testing.T) {
 	if captured.auth != "Bearer sk-or-test" {
 		t.Errorf("Authorization = %q", captured.auth)
 	}
+	if got := captured.body["max_tokens"]; got != float64(maxOutputTokens) {
+		t.Errorf("max_tokens = %v: sin tope, una imagen armada puede pedir una salida enorme", got)
+	}
 	provider := captured.body["provider"].(map[string]any)
 	if provider["data_collection"] != "deny" || provider["zdr"] != true || provider["require_parameters"] != true {
 		t.Errorf("preferencias de privacidad incorrectas: %v", provider)

@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -64,6 +65,7 @@ type InvoiceStore interface {
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 	SaveReread(ctx context.Context, chatID, id int64, reread invoice.Invoice) error
 	EnqueueJob(ctx context.Context, j store.Job) (store.Job, bool, error)
+	CountJobsSince(ctx context.Context, chatID int64, since time.Time) (int, error)
 	AdvanceJob(ctx context.Context, chatID, id int64, from, to store.JobState) error
 	RetryJob(ctx context.Context, chatID, id int64) (store.Job, error)
 	Jobs(ctx context.Context, chatID int64, limit int) ([]store.Job, error)
@@ -82,6 +84,8 @@ type Deps struct {
 	// ReadTimeout es el plazo para descargar y leer un archivo, desde que tiene un lector libre.
 	// Vacío, vale processTimeout.
 	ReadTimeout time.Duration
+	// DailyFileLimit es cuántos archivos acepta un chat cada 24 horas. Vacío, vale defaultDailyFileLimit.
+	DailyFileLimit int
 }
 
 // NewHandler devuelve el handler que responde a mensajes y botones.
@@ -162,6 +166,12 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *models.Message, file imageFile) {
 	c := h.deps.Operations.chat(msg.Chat.ID)
 	c.mu.Lock()
+	if h.overDailyLimit(ctx, msg.Chat.ID) {
+		c.mu.Unlock()
+		h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailSize})
+		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, fmt.Sprintf(DailyLimitMessage, h.dailyFileLimit()), nil)
+		return
+	}
 	job, created, err := h.deps.Store.EnqueueJob(ctx, jobOf(msg, file))
 	if err != nil {
 		c.mu.Unlock()

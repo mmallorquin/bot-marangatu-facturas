@@ -22,7 +22,10 @@ import (
 const (
 	DefaultBaseURL = "https://openrouter.ai/api/v1"
 
-	requestTimeout  = 90 * time.Second
+	requestTimeout = 90 * time.Second
+	// maxOutputTokens acota el costo de una respuesta: una factura son unos 300 tokens, y un modelo
+	// que razona usa unos 2.000 más. Sin tope, una imagen armada a propósito puede pedir una salida enorme.
+	maxOutputTokens = 8000
 	maxResponseSize = 1 << 20 // 1 MB
 
 	// Identifican la app en el panel de OpenRouter.
@@ -191,6 +194,7 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 			JSONSchema: jsonSchema{Name: "comprobante", Strict: true, Schema: invoiceSchema},
 		},
 		Provider:  provider,
+		MaxTokens: maxOutputTokens,
 		Reasoning: effort,
 		Plugins:   plugins,
 	}
