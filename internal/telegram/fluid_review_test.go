@@ -217,6 +217,9 @@ func TestNextPendingComesWithItsPhoto(t *testing.T) {
 	if len(photos) != 1 || photos[0].fileName != "grande" || !strings.Contains(photos[0].text, "001-001-0005678") {
 		t.Fatalf("la siguiente pendiente debía llegar con su foto: %+v", photos)
 	}
+	if photos[0].markup != "" {
+		t.Errorf("una foto sin botones no lleva reply_markup (Telegram puede rechazar un null): %q", photos[0].markup)
+	}
 	if len(next) != 1 || !strings.Contains(next[0].replyTo, `"message_id":12`) { // 12 = la foto recién mandada
 		t.Errorf("la tarjeta debía citar la foto recién mandada: %+v", next)
 	}

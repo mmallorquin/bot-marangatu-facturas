@@ -92,11 +92,15 @@ func (h *handler) sendSource(ctx context.Context, b *bot.Bot, chatID int64, rec 
 		reply = &models.ReplyParameters{MessageID: replyTo, AllowSendingWithoutReply: true}
 	}
 	caption := photoCaption(rec.Invoice)
-	keyboard = h.bindKeyboard(ctx, chatID, keyboard)
+	// Sin botones el campo queda en nil: un puntero nil dentro de la interfaz se mandaría como "null".
+	var markup models.ReplyMarkup
+	if bound := h.bindKeyboard(ctx, chatID, keyboard); bound != nil {
+		markup = bound
+	}
 	asDocument := func() (*models.Message, error) {
 		return b.SendDocument(ctx, &bot.SendDocumentParams{
 			ChatID: chatID, Document: &models.InputFileString{Data: rec.Source.FileID},
-			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
+			Caption: caption, ReplyMarkup: markup, ReplyParameters: reply,
 		})
 	}
 	var (
@@ -114,7 +118,7 @@ func (h *handler) sendSource(ctx context.Context, b *bot.Bot, chatID int64, rec 
 		}
 		sent, err = b.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID: chatID, Photo: photo,
-			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
+			Caption: caption, ReplyMarkup: markup, ReplyParameters: reply,
 		})
 		if err != nil {
 			// Una imagen que llegó como archivo no se puede reenviar como foto: va como documento.
