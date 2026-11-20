@@ -118,19 +118,18 @@ func TestValidateDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-func TestCDCWithWrongLengthIsAWarningNotABlock(t *testing.T) {
+// Antes era solo un aviso, pero el CDC decide si la factura entra al archivo: una factura en papel
+// con un CDC incompleto quedaba excluida por "electrónica". Ahora hay que resolverlo (un toque).
+func TestCDCWithWrongLengthMustBeResolved(t *testing.T) {
 	inv := validInvoice()
 	inv.CDC = "0123"
 
-	if issues := Validate(inv); len(issues) != 0 {
-		t.Errorf("un CDC mal leído no bloquea: %+v", issues)
-	}
-	warnings := Warnings(inv)
-	if len(warnings) != 1 || warnings[0].Field != FieldCDC {
-		t.Errorf("debería avisar del CDC: %+v", warnings)
+	issues := Validate(inv)
+	if len(issues) != 1 || issues[0].Field != FieldCDC {
+		t.Errorf("un CDC incompleto debe resolverse antes de guardar: %+v", issues)
 	}
 	if Clean(inv) {
-		t.Error("con avisos no se guarda sola")
+		t.Error("con problemas no se guarda sola")
 	}
 }
 

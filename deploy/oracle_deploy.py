@@ -4,6 +4,7 @@
 import hashlib
 import io
 import re
+import shutil
 import tarfile
 import fcntl
 import json
@@ -21,6 +22,9 @@ from pathlib import Path
 
 MAX_PACKAGE = 64 * 1024 * 1024
 RELEASE_FILES = {"bot", "metricas", "REVISION", "SHA256SUMS"}
+# Cada respaldo trae la base completa: sin tope se acumulan y conservan datos que el usuario ya borró.
+KEEP_BACKUPS = 10
+BACKUP_NAME = re.compile(r"pre-update-[0-9a-f]{12}-(\d{8}T\d{6}Z)-")
 
 
 class HealthError(RuntimeError):
@@ -75,7 +79,26 @@ def deploy_release(payload, paths, service):
                 raise RuntimeError(f"despliegue y recuperación fallaron; respaldo: {backup}") from rollback_error
             reason = f"; comprobación: {error}" if isinstance(error, HealthError) else ""
             raise RuntimeError(f"despliegue falló{reason}; ejecutable anterior restaurado; respaldo: {backup}") from error
-        return {"revision": revision, "backup": str(backup), "sha256": hashlib.sha256(files["bot"]).hexdigest()}
+        result = {"revision": revision, "backup": str(backup), "sha256": hashlib.sha256(files["bot"]).hexdigest()}
+        try:
+            result["pruned"] = prune_backups(paths.backups)
+        except OSError:
+            # El despliegue ya quedó bien: no se informa como fallido por no poder limpiar.
+            result["prune_error"] = "no se pudieron borrar respaldos viejos"
+        return result
+
+
+def prune_backups(backups):
+    """Borra los respaldos de despliegue más viejos y deja KEEP_BACKUPS; no toca nada que no creó este script."""
+    dated = sorted(
+        (match.group(1), path)
+        for path in backups.iterdir()
+        if (match := BACKUP_NAME.match(path.name)) and path.is_dir() and not path.is_symlink()
+    )
+    old = dated[:-KEEP_BACKUPS]
+    for _, path in old:
+        shutil.rmtree(path)
+    return len(old)
 
 
 def atomic_write(path, content, mode):

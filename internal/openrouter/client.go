@@ -22,7 +22,10 @@ import (
 const (
 	DefaultBaseURL = "https://openrouter.ai/api/v1"
 
-	requestTimeout  = 90 * time.Second
+	requestTimeout = 90 * time.Second
+	// maxOutputTokens acota el costo de una respuesta: una factura son unos 300 tokens, y un modelo
+	// que razona usa unos 2.000 más. Sin tope, una imagen armada a propósito puede pedir una salida enorme.
+	maxOutputTokens = 8000
 	maxResponseSize = 1 << 20 // 1 MB
 
 	// Identifican la app en el panel de OpenRouter.
@@ -191,6 +194,7 @@ func (c *Client) buildRequest(img reader.Image) chatRequest {
 			JSONSchema: jsonSchema{Name: "comprobante", Strict: true, Schema: invoiceSchema},
 		},
 		Provider:  provider,
+		MaxTokens: maxOutputTokens,
 		Reasoning: effort,
 		Plugins:   plugins,
 	}
@@ -244,6 +248,7 @@ func parseResult(body []byte) (reader.Result, error) {
 	if err := json.Unmarshal(content, &inv); err != nil {
 		return reader.Result{}, newReadError(reader.ErrorResponse, nil)
 	}
+	inv.UncertainFields = knownFieldNames(inv.UncertainFields)
 	// La orientación no es parte de la factura: va aparte, y un valor raro se toma como "derecha".
 	var extra struct {
 		Rotation int `json:"orientacion"`
@@ -381,6 +386,20 @@ func newReadError(kind reader.ErrorKind, cause error) *APIError {
 }
 
 // contextCause conserva cancelación/deadline para errors.Is, sin retener URLs del error de net/http.
+// knownFieldNames deja solo nombres reales de campo, sin repetir: campos_dudosos es texto libre del
+// modelo y cada entrada se registra como evento, así que no puede llevar contenido de la factura.
+func knownFieldNames(fields []string) []string {
+	known := make([]string, 0, len(fields)) // vacío, no nil: se guarda como [] igual que llegó
+	for _, field := range fields {
+		field = strings.ToLower(strings.TrimSpace(field)) // "RUC_EMISOR " sigue siendo una duda real
+		valid := field == invoice.FieldCurrency || slices.Contains(invoice.EditableFields, field)
+		if valid && !slices.Contains(known, field) {
+			known = append(known, field)
+		}
+	}
+	return known
+}
+
 func contextCause(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):

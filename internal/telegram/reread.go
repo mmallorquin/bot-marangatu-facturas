@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-telegram/bot"
@@ -196,16 +197,22 @@ func (h *handler) handleRereadCallback(ctx context.Context, b *bot.Bot, query *m
 		ch.mu.Unlock()
 		h.answer(ctx, b, press.queryID, RereadLimitAlert, true)
 		return
+	case ch.rereading[rec.ID]: // el contador de relecturas sube recién cuando termina
+		ch.mu.Unlock()
+		h.answer(ctx, b, press.queryID, AlreadyRereadingAnswer, false)
+		return
 	}
 	op := currentOperation(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	ch.reads[op] = cancel
+	ch.rereading[rec.ID] = true
 	h.answer(ctx, b, press.queryID, RereadingAnswer, false)
 	ch.mu.Unlock()
 	defer func() {
 		cancel()
 		ch.mu.Lock()
 		delete(ch.reads, op)
+		delete(ch.rereading, rec.ID)
 		ch.mu.Unlock()
 	}()
 	h.reread(ctx, b, press, rec)
@@ -220,10 +227,11 @@ func photoOf(rec store.Record, press buttonPress) int {
 }
 
 func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
-	release, err := h.deps.Operations.gate.acquire(ctx, press.chatID)
+	acquired, err := h.deps.Operations.gate.acquire(ctx, press.chatID)
 	if err != nil {
 		return // el usuario borró sus datos o el bot se apaga
 	}
+	release := sync.OnceFunc(acquired) // como en processJob: se suelta al terminar de leer
 	defer release()
 	ctx, cancel := context.WithTimeout(ctx, h.readTimeout())
 	defer cancel()
@@ -240,6 +248,7 @@ func (h *handler) reread(ctx context.Context, b *bot.Bot, press buttonPress, rec
 
 	start := time.Now()
 	result, err := h.deps.Reader.Read(ctx, reader.Image{Data: data, MimeType: rec.Source.MimeType, Focus: reader.FocusIdentity})
+	release()
 	if err != nil {
 		h.finishRead(ctx, func(ctx context.Context) {
 			h.logger.Error("no se pudo releer la factura", "chat_id", press.chatID, "error", err)
@@ -341,6 +350,8 @@ func comparableValue(inv invoice.Invoice, field string) string {
 		return strconv.FormatInt(inv.Total, 10)
 	case invoice.FieldCDC:
 		return strings.TrimSpace(inv.CDC)
+	case invoice.FieldType:
+		return inv.Type
 	}
 	return ""
 }
@@ -352,6 +363,8 @@ func display(field, value string) string {
 		return displayDate(value)
 	case invoice.FieldCondition:
 		return labelOr(conditionLabels, value, value)
+	case invoice.FieldType:
+		return labelOr(typeLabels, value, value)
 	case invoice.FieldExempt, invoice.FieldTaxed5, invoice.FieldTaxed10, invoice.FieldVAT5, invoice.FieldVAT10, invoice.FieldTotal:
 		if n, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return formatGs(n)

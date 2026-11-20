@@ -1,6 +1,11 @@
 // Package invoice define una factura paraguaya y valida que sus datos sean coherentes.
 package invoice
 
+import (
+	"slices"
+	"strings"
+)
+
 // Tipos de comprobante que el bot reconoce.
 const (
 	TypeFactura     = "factura"
@@ -19,6 +24,18 @@ const (
 
 // CurrencyPYG es el guaraní, la única moneda soportada por ahora.
 const CurrencyPYG = "PYG"
+
+// guaraniSpellings son las formas en que un modelo escribe guaraníes en vez del código ISO.
+var guaraniSpellings = []string{"PYG", "GS", "GS.", "G", "₲", "GUARANIES", "GUARANÍES", "GUARANI", "GUARANÍ"}
+
+// NormalizeCurrency lleva la moneda leída al código en mayúsculas, y a PYG si dice guaraníes de otra forma.
+func NormalizeCurrency(raw string) string {
+	currency := strings.ToUpper(strings.TrimSpace(raw))
+	if slices.Contains(guaraniSpellings, currency) {
+		return CurrencyPYG
+	}
+	return currency
+}
 
 // Invoice son los datos de un comprobante. Los montos están en guaraníes
 // e incluyen IVA, como se imprimen en las facturas paraguayas.

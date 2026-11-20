@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -149,6 +150,9 @@ func TestReadSendsImagePrivacyAndSchema(t *testing.T) {
 	}
 	if captured.auth != "Bearer sk-or-test" {
 		t.Errorf("Authorization = %q", captured.auth)
+	}
+	if got := captured.body["max_tokens"]; got != float64(maxOutputTokens) {
+		t.Errorf("max_tokens = %v: sin tope, una imagen armada puede pedir una salida enorme", got)
 	}
 	provider := captured.body["provider"].(map[string]any)
 	if provider["data_collection"] != "deny" || provider["zdr"] != true || provider["require_parameters"] != true {
@@ -583,5 +587,19 @@ func TestReadWithIdentityFocusSendsAFocusedInstructionAndMediumReasoning(t *test
 	_, _ = client.Read(context.Background(), focused)
 	if got := fixed.body["reasoning"]; !reflect.DeepEqual(got, map[string]any{"effort": "low", "exclude": true}) {
 		t.Errorf("reasoning configurado = %v", got)
+	}
+}
+
+func TestUncertainFieldsKeepOnlyKnownFieldNames(t *testing.T) {
+	// Una foto con texto escrito puede hacer que el modelo meta cualquier cosa en campos_dudosos,
+	// y cada entrada termina en las métricas y en la terminal del administrador.
+	content := strings.Replace(invoiceJSON, `"campos_dudosos":[]`,
+		`"campos_dudosos":["ruc_emisor","RUC 80000519-8 \u001b[31m","ruc_emisor"," TOTAL ","moneda"]`, 1)
+	client := newTestClient(t, http.StatusOK, fakeChatResponse(content, "stop"), nil)
+
+	result, err := client.Read(context.Background(), reader.Image{Data: []byte("x"), MimeType: "image/jpeg"})
+
+	if err != nil || !slices.Equal(result.Invoice.UncertainFields, []string{"ruc_emisor", "total", "moneda"}) {
+		t.Errorf("campos dudosos = %q, %v", result.Invoice.UncertainFields, err)
 	}
 }

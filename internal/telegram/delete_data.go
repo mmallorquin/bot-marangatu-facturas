@@ -55,6 +55,6 @@ func (h *handler) handleDeleteData(ctx context.Context, b *bot.Bot, press button
 	invalidateReads(ctx)
 	h.logger.Info("datos del chat borrados", "chat_id", press.chatID, "facturas", deleted)
 	h.editText(ctx, b, press, fmt.Sprintf("🗑️ Listo: borré %d %s y tu configuración. "+
-		"Si volvés a escribir, empezás de cero.", deleted, plural(deleted, "factura", "facturas")), noKeyboard())
+		"Si volvés a escribir, empezás de cero. Los respaldos del servidor pueden conservar una copia hasta que roten.", deleted, plural(deleted, "factura", "facturas")), noKeyboard())
 	h.answer(ctx, b, press.queryID, "", false)
 }

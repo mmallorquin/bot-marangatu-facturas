@@ -41,11 +41,23 @@ func RunReminders(ctx context.Context, b *bot.Bot, deps Deps) {
 	defer ticker.Stop()
 	for {
 		h.sendDueReminders(ctx, b, h.deps.Now())
+		h.cleanUp(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// cleanUp olvida lo que ya cumplió su plazo: referencias de archivos terminados y facturas descartadas.
+// Corre con los recordatorios para que no dependa de que el bot se reinicie.
+func (h *handler) cleanUp(ctx context.Context) {
+	if err := h.deps.Store.PruneJobs(ctx, store.JobRetention); err != nil {
+		h.logger.Warn("no se pudieron limpiar los archivos viejos", "error", err)
+	}
+	if err := h.deps.Store.PurgeRemoved(ctx, store.RemovedRetention); err != nil {
+		h.logger.Warn("no se pudieron eliminar las facturas descartadas", "error", err)
 	}
 }
 

@@ -14,8 +14,13 @@ El bot corre como servicio independiente de systemd en Ubuntu. El nombre del ser
 | `/var/backups/bot-marangatu/` | Respaldo inicial de la migración; accesible por root |
 
 La carpeta de datos tiene permisos `0700`. El servicio arranca con el servidor y se reinicia
-si el proceso falla. `GOMEMLIMIT=192MiB` es un objetivo de memoria del runtime de Go, no un
-límite estricto para el proceso completo.
+si el proceso falla. `GOMEMLIMIT=192MiB` es un objetivo de memoria del runtime de Go; el límite
+estricto es `MemoryMax=400M` en la unidad: si el bot lo pasa, systemd lo reinicia solo a él.
+
+Variable opcional en `/etc/bot-marangatu.env`: `ADMIN_CHAT_ID=<número de tu chat con el bot>`.
+Con ella, el bot te manda un mensaje de Telegram (uno por hora como mucho) cuando las lecturas
+fallan porque OpenRouter no tiene saldo o rechaza la clave o el modelo. No avisa si el bot está
+caído: para eso hace falta un chequeo externo.
 
 ## Estado y logs
 
@@ -78,8 +83,24 @@ automáticamente:** una migración o nuevas facturas no deben sobrescribirse con
 una copia vieja. Las migraciones de este proyecto deben seguir siendo compatibles
 con la versión anterior para permitir esa recuperación.
 
-Estos respaldos previos a despliegue permanecen en la VM; no sustituyen un backup
-programado fuera del servidor.
+Después de un despliegue exitoso el receptor conserva los 10 respaldos más nuevos y borra el
+resto: cada uno trae la base completa, así que sin tope se acumulan y guardan datos que el
+usuario ya eliminó. Estos respaldos permanecen en la VM y solo se crean al desplegar; no
+sustituyen un backup programado fuera del servidor, que sigue pendiente.
+
+### Cambios que se instalan a mano
+
+El workflow solo reemplaza los dos binarios. Estos archivos de `deploy/` cambiaron el 20/11/2026 y
+hay que instalarlos con la cuenta administrativa para que tengan efecto:
+
+```bash
+scp deploy/oracle_deploy.py deploy/bot-marangatu.service hermes-vm:
+ssh hermes-vm 'sudo install -o root -g root -m 0755 oracle_deploy.py /usr/local/sbin/bot-marangatu-deploy \
+  && sudo install -o root -g root -m 0644 bot-marangatu.service /etc/systemd/system/bot-marangatu.service \
+  && sudo systemctl daemon-reload && sudo systemctl restart bot-marangatu.service'
+```
+
+Para recibir los avisos, agregar `ADMIN_CHAT_ID` a `/etc/bot-marangatu.env` y reiniciar el servicio.
 
 La instalación inicial se hace con la cuenta administrativa: copiar los tres
 archivos de `deploy/` y una clave pública exclusiva a un directorio temporal del

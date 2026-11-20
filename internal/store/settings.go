@@ -254,8 +254,8 @@ type ReminderCandidate struct {
 	Registration Registration
 }
 
-// ReminderCandidates devuelve los chats con facturas guardadas en el período (AAAA-MM o AAAA)
-// que no generaron el ZIP de ese período, no desactivaron los recordatorios y no fueron avisados.
+// ReminderCandidates devuelve los chats con facturas guardadas en el período (AAAA-MM o AAAA) después
+// de su último ZIP entregado (o sin ninguno), que no desactivaron los recordatorios y no fueron avisados.
 func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]ReminderCandidate, error) {
 	first, last := period, period
 	if len(period) == len("2006") {
@@ -267,9 +267,11 @@ func (s *Store) ReminderCandidates(ctx context.Context, period string) ([]Remind
 		LEFT JOIN chat_settings cs ON cs.chat_id = i.chat_id
 		WHERE i.status = ? AND i.period BETWEEN ? AND ?
 			AND COALESCE(cs.reminders, 1) = 1
-			AND NOT EXISTS (SELECT 1 FROM exports e WHERE e.chat_id = i.chat_id AND e.period = ? AND e.delivered_at != '')
 			AND NOT EXISTS (SELECT 1 FROM reminders r WHERE r.chat_id = i.chat_id AND r.period = ?)
-		GROUP BY i.chat_id ORDER BY i.chat_id`,
+		GROUP BY i.chat_id
+		-- Un ZIP entregado solo cubre lo guardado hasta ese momento ('legacy' ordena después de cualquier fecha).
+		HAVING MAX(i.updated_at) > COALESCE((SELECT e.delivered_at FROM exports e WHERE e.chat_id = i.chat_id AND e.period = ?), '')
+		ORDER BY i.chat_id`,
 		StatusSaved, first, last, period, period)
 	if err != nil {
 		return nil, fmt.Errorf("buscando a quién recordar: %w", err)

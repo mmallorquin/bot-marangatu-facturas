@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -64,11 +65,13 @@ type InvoiceStore interface {
 	LogEvent(ctx context.Context, chatID int64, e store.Event) error
 	SaveReread(ctx context.Context, chatID, id int64, reread invoice.Invoice) error
 	EnqueueJob(ctx context.Context, j store.Job) (store.Job, bool, error)
+	CountJobsSince(ctx context.Context, chatID int64, since time.Time) (int, error)
 	AdvanceJob(ctx context.Context, chatID, id int64, from, to store.JobState) error
 	RetryJob(ctx context.Context, chatID, id int64) (store.Job, error)
 	Jobs(ctx context.Context, chatID int64, limit int) ([]store.Job, error)
 	RecoverJobs(ctx context.Context) (requeued, uncertain []store.Job, err error)
 	PruneJobs(ctx context.Context, maxAge time.Duration) error
+	PurgeRemoved(ctx context.Context, maxAge time.Duration) error
 }
 
 // Deps son las dependencias del handler.
@@ -82,6 +85,11 @@ type Deps struct {
 	// ReadTimeout es el plazo para descargar y leer un archivo, desde que tiene un lector libre.
 	// Vacío, vale processTimeout.
 	ReadTimeout time.Duration
+	// DailyFileLimit es cuántos archivos acepta un chat cada 24 horas. Vacío, vale defaultDailyFileLimit.
+	DailyFileLimit int
+	// AdminChatID es el chat que recibe el aviso cuando las lecturas fallan por saldo o configuración.
+	// Vacío, no se avisa a nadie.
+	AdminChatID int64
 }
 
 // NewHandler devuelve el handler que responde a mensajes y botones.
@@ -162,6 +170,12 @@ func (h *handler) handleMessage(ctx context.Context, b *bot.Bot, msg *models.Mes
 func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *models.Message, file imageFile) {
 	c := h.deps.Operations.chat(msg.Chat.ID)
 	c.mu.Lock()
+	if h.overDailyLimit(ctx, msg.Chat.ID) {
+		c.mu.Unlock()
+		h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailQuota})
+		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, fmt.Sprintf(DailyLimitMessage, h.dailyFileLimit()), nil)
+		return
+	}
 	job, created, err := h.deps.Store.EnqueueJob(ctx, jobOf(msg, file))
 	if err != nil {
 		c.mu.Unlock()
@@ -317,7 +331,11 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv)
 	note := ""
 	if rucFix != "" {
-		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
+		detail := store.EventDetailRUCFromCDC
+		if rucFix == RUCFromHistoryNote {
+			detail = store.EventDetailRUCKnown
+		}
+		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: detail})
 		note = "\n\n" + rucFix
 	}
 	batch := currentBatch(ctx)
@@ -346,6 +364,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 // Devuelve la nota que explica la corrección del RUC, o "" si no hubo.
 func (h *handler) normalizeReading(ctx context.Context, chatID int64, inv invoice.Invoice) (invoice.Invoice, string) {
 	inv.Number = invoice.NormalizeNumber(inv.Number)
+	inv.Currency = invoice.NormalizeCurrency(inv.Currency)
 	if fixed, ok := invoice.ReconcileRUCWithCDC(inv); ok {
 		return fixed, RUCFromCDCNote
 	}

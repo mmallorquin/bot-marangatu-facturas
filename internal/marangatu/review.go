@@ -45,7 +45,7 @@ func PreviewPurchases(invoices []invoice.Invoice, s Settings, period string) (Pr
 		return preview, err
 	}
 	for _, inv := range invoices {
-		if reason := skipReason(inv); reason != "" {
+		if reason := SkipReason(inv); reason != "" {
 			preview.Skipped = append(preview.Skipped, Skipped{Number: inv.Number, Reason: reason})
 			continue
 		}

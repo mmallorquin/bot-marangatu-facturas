@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +32,7 @@ const (
 
 // outgoing es un pedido que el bot le hizo a Telegram.
 type outgoing struct {
+	chatID string // a qué chat fue
 	method string // sendMessage, editMessageText, editMessageReplyMarkup, answerCallbackQuery
 	text   string
 	markup string // reply_markup en JSON
@@ -120,6 +122,7 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.requests = append(f.requests, outgoing{
+		chatID: r.FormValue("chat_id"),
 		method: method, text: r.FormValue("text"), markup: r.FormValue("reply_markup"), replyTo: r.FormValue("reply_parameters"),
 	})
 	_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":10,"chat":{"id":42}}}`)
@@ -170,6 +173,21 @@ type harness struct {
 	reader   *fakeReader
 	handle   bot.HandlerFunc
 	photos   atomic.Int64 // cuántas fotos mandó: cada una es un mensaje distinto
+	clock    time.Time    // reloj de los tests que usan h.now
+}
+
+// now es un reloj que el test puede adelantar.
+func (h *harness) now() time.Time { return h.clock }
+
+// messagesTo son los mensajes que el bot mandó a un chat.
+func (h *harness) messagesTo(chatID int64) []outgoing {
+	var out []outgoing
+	for _, m := range h.telegram.byMethod("sendMessage") {
+		if m.chatID == strconv.FormatInt(chatID, 10) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func newHarness(t *testing.T) *harness {
@@ -200,7 +218,7 @@ func newHarness(t *testing.T) *harness {
 		Store:  st,
 		Now:    func() time.Time { return time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC) },
 	})
-	return &harness{telegram: fake, bot: b, store: st, reader: rdr, handle: handle}
+	return &harness{telegram: fake, bot: b, store: st, reader: rdr, handle: handle, clock: time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)}
 }
 
 func (h *harness) send(update *models.Update) {

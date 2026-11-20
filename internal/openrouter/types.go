@@ -9,6 +9,7 @@ type chatRequest struct {
 	Messages       []message      `json:"messages"`
 	ResponseFormat responseFormat `json:"response_format"`
 	Provider       providerPrefs  `json:"provider"`
+	MaxTokens      int            `json:"max_tokens"`
 	Reasoning      *reasoning     `json:"reasoning,omitempty"` // nil = lo que decida el modelo
 	Plugins        []plugin       `json:"plugins,omitempty"`
 }

@@ -16,6 +16,7 @@ import (
 	_ "modernc.org/sqlite" // driver SQLite en Go puro (sin cgo)
 
 	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/marangatu"
 )
 
 // Status es el estado de una factura.
@@ -190,6 +191,10 @@ type Summary struct {
 	VAT5          int64
 	VAT10         int64
 	Total         int64
+	// Excluded y ExcludedTotal son las guardadas que no entran al archivo de Marangatu
+	// (electrónicas, notas de crédito, tipos no soportados). Están incluidas en los totales de arriba.
+	Excluded      int
+	ExcludedTotal int64
 }
 
 // Store es el repositorio de facturas.
@@ -701,15 +706,22 @@ func (s *Store) MonthSummary(ctx context.Context, chatID int64, period string) (
 }
 
 func addInvoice(sum Summary, inv invoice.Invoice) Summary {
-	return Summary{
-		Count:   sum.Count + 1,
-		Exempt:  sum.Exempt + inv.Exempt,
-		Taxed5:  sum.Taxed5 + inv.Taxed5,
-		Taxed10: sum.Taxed10 + inv.Taxed10,
-		VAT5:    sum.VAT5 + inv.VAT5,
-		VAT10:   sum.VAT10 + inv.VAT10,
-		Total:   sum.Total + inv.Total,
+	next := Summary{
+		Count:         sum.Count + 1,
+		Exempt:        sum.Exempt + inv.Exempt,
+		Taxed5:        sum.Taxed5 + inv.Taxed5,
+		Taxed10:       sum.Taxed10 + inv.Taxed10,
+		VAT5:          sum.VAT5 + inv.VAT5,
+		VAT10:         sum.VAT10 + inv.VAT10,
+		Total:         sum.Total + inv.Total,
+		Excluded:      sum.Excluded,
+		ExcludedTotal: sum.ExcludedTotal,
 	}
+	if marangatu.SkipReason(inv) != "" {
+		next.Excluded++
+		next.ExcludedTotal += inv.Total
+	}
+	return next
 }
 
 // inDraftTx ejecuta fn dentro de una transacción, solo si id es un borrador del chat.
@@ -751,9 +763,15 @@ func currentInvoice(ctx context.Context, tx *sql.Tx, id int64) (invoice.Invoice,
 }
 
 // dedupKey identifica una factura: el mismo emisor no repite tipo, timbrado y número.
+// Factura y ticket cuentan como el mismo tipo: el modelo elige entre los dos para un mismo
+// comprobante en papel térmico, y ambos entran al archivo.
 func dedupKey(inv invoice.Invoice) string {
 	inv = normalizeInvoiceIdentity(inv)
-	return fmt.Sprintf("%s|%s|%s|%s", inv.Type, inv.IssuerRUC, inv.Timbrado, inv.Number)
+	kind := inv.Type
+	if kind == invoice.TypeTicket {
+		kind = invoice.TypeFactura
+	}
+	return fmt.Sprintf("%s|%s|%s|%s", kind, inv.IssuerRUC, inv.Timbrado, inv.Number)
 }
 
 func normalizeInvoiceIdentity(inv invoice.Invoice) invoice.Invoice {

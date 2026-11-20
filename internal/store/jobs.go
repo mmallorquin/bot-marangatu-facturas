@@ -34,6 +34,9 @@ const (
 
 	// JobRetention es cuánto se conserva la referencia de un archivo ya terminado.
 	JobRetention = 30 * 24 * time.Hour
+	// RemovedRetention es cuánto se conserva una factura descartada o quitada antes de eliminarla
+	// de la base: da margen para un error del usuario sin guardar sus datos para siempre.
+	RemovedRetention = 30 * 24 * time.Hour
 )
 
 // ErrJobGone indica que el trabajo ya no existe o no está en el estado esperado
@@ -89,6 +92,17 @@ func (s *Store) EnqueueJob(ctx context.Context, j Job) (job Job, created bool, e
 		return Job{}, false, fmt.Errorf("leyendo el archivo anotado: %w", err)
 	}
 	return job, inserted == 1, nil
+}
+
+// CountJobsSince cuenta los archivos que el chat mandó desde since: es la base del cupo diario.
+func (s *Store) CountJobsSince(ctx context.Context, chatID int64, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs WHERE chat_id = ? AND created_at >= ?`,
+		chatID, since.UTC().Format(time.RFC3339)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("contando los archivos del chat: %w", err)
+	}
+	return n, nil
 }
 
 // AdvanceJob mueve un trabajo de un estado a otro. Falla con ErrJobGone si el trabajo no
@@ -212,6 +226,18 @@ func (s *Store) PruneJobs(ctx context.Context, maxAge time.Duration) error {
 		cutoff, JobQueued, JobDownloading, JobReading)
 	if err != nil {
 		return fmt.Errorf("limpiando archivos viejos: %w", err)
+	}
+	return nil
+}
+
+// PurgeRemoved elimina de la base las facturas descartadas o quitadas hace más de maxAge,
+// con sus datos y la referencia a la foto.
+func (s *Store) PurgeRemoved(ctx context.Context, maxAge time.Duration) error {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM invoices WHERE status IN (?, ?) AND updated_at < ?`,
+		StatusDiscarded, StatusDeleted, cutoff)
+	if err != nil {
+		return fmt.Errorf("eliminando facturas descartadas: %w", err)
 	}
 	return nil
 }

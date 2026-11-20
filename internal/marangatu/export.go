@@ -133,7 +133,8 @@ func BuildPurchases(invoices []invoice.Invoice, s Settings, period, fileID strin
 	return Export{FileName: baseName + ".zip", Zip: data, Rows: len(preview.Invoices), Skipped: preview.Skipped}, nil
 }
 
-func skipReason(inv invoice.Invoice) string {
+// SkipReason dice por qué una factura guardada no entra al archivo; "" si entra.
+func SkipReason(inv invoice.Invoice) string {
 	if inv.CDC != "" {
 		return ReasonElectronic
 	}
