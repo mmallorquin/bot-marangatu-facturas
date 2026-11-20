@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -441,5 +442,42 @@ func TestOpenMigratesInvoicesCreatedBeforeThePhotoReference(t *testing.T) {
 	rec, err := s.Get(context.Background(), chatA, 1)
 	if err != nil || rec.Source.FileID != "" || rec.Rereads != 0 || rec.Reread != nil || rec.Invoice.Number != "001-001-0000001" {
 		t.Errorf("borrador anterior = %+v, error = %v", rec, err)
+	}
+}
+
+func TestKnownIssuerRUCMatchesSavedInvoicesOfTheSameChatByName(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	save := func(chatID int64, name, ruc, number string) {
+		t.Helper()
+		inv := sampleInvoice(number, 110_000)
+		inv.IssuerName, inv.IssuerRUC = name, ruc
+		id, err := s.CreateDraft(ctx, chatID, Draft{Invoice: inv})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Save(ctx, chatID, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save(1, "Comercial Ejemplo S.A.", "80000519-8", "001-001-0000001")
+	save(2, "Otro Chat S.A.", "80000519-8", "001-001-0000002")
+	save(1, "Dos RUC S.A.", "80000519-8", "001-001-0000003")
+	save(1, "Dos RUC S.A.", fmt.Sprintf("1234567-%d", invoice.CheckDigit("1234567")), "001-001-0000004")
+
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"  comercial   ejemplo s.a. ", "80000519-8"},
+		{"Otro Chat S.A.", ""}, // es de otro chat
+		{"Dos RUC S.A.", ""},   // ambiguo
+		{"", ""},
+	}
+	for _, c := range cases {
+		got, ok, err := s.KnownIssuerRUC(ctx, 1, c.name)
+		if err != nil || got != c.want || ok != (c.want != "") {
+			t.Errorf("KnownIssuerRUC(%q) = %q, %v, %v; se esperaba %q", c.name, got, ok, err, c.want)
+		}
 	}
 }

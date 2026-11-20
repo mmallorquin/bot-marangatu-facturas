@@ -55,28 +55,8 @@ func (h *handler) sendSourcePhoto(ctx context.Context, b *bot.Bot, press buttonP
 		h.answer(ctx, b, press.queryID, NoSourceAlert, true)
 		return
 	}
-	reply := &models.ReplyParameters{MessageID: press.messageID, AllowSendingWithoutReply: true}
-	caption := photoCaption(rec.Invoice)
-	keyboard := h.bindKeyboard(ctx, press.chatID, photoKeyboard(rec.ID, rec.Status == store.StatusDraft))
-	var err error
-	if rec.Source.MimeType == pdfMimeType {
-		_, err = b.SendDocument(ctx, &bot.SendDocumentParams{
-			ChatID: press.chatID, Document: &models.InputFileString{Data: rec.Source.FileID},
-			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
-		})
-	} else {
-		// Si la foto llegó acostada o al revés, se manda enderezada para leerla cómodo en el celular.
-		// Si no se puede (formato, descarga), va la original tal cual.
-		var photo models.InputFile = &models.InputFileString{Data: rec.Source.FileID}
-		if rotated, ok := h.straightenedPhoto(ctx, b, press.chatID, rec.Source); ok {
-			photo = &models.InputFileUpload{Filename: "factura.jpg", Data: bytes.NewReader(rotated)}
-		}
-		_, err = b.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID: press.chatID, Photo: photo,
-			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
-		})
-	}
-	if err != nil {
+	keyboard := photoKeyboard(rec.ID, rec.Status == store.StatusDraft)
+	if _, err := h.sendSource(ctx, b, press.chatID, rec, press.messageID, keyboard); err != nil {
 		h.logger.Warn("no se pudo reenviar la foto", "chat_id", press.chatID, "error", Redact(err, h.deps.Token))
 		h.answer(ctx, b, press.queryID, PhotoGoneAlert, true)
 		return
@@ -101,6 +81,49 @@ func (h *handler) straightenedPhoto(ctx context.Context, b *bot.Bot, chatID int6
 		return nil, false
 	}
 	return rotated, true
+}
+
+// sendSource manda la foto o el PDF original de la factura, con un epígrafe que dice de cuál es,
+// y devuelve el mensaje enviado. replyTo en 0 no cita ningún mensaje.
+func (h *handler) sendSource(ctx context.Context, b *bot.Bot, chatID int64, rec store.Record, replyTo int, keyboard *models.InlineKeyboardMarkup) (int, error) {
+	var reply *models.ReplyParameters
+	if replyTo > 0 {
+		reply = &models.ReplyParameters{MessageID: replyTo, AllowSendingWithoutReply: true}
+	}
+	caption := photoCaption(rec.Invoice)
+	keyboard = h.bindKeyboard(ctx, chatID, keyboard)
+	asDocument := func() (*models.Message, error) {
+		return b.SendDocument(ctx, &bot.SendDocumentParams{
+			ChatID: chatID, Document: &models.InputFileString{Data: rec.Source.FileID},
+			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
+		})
+	}
+	var (
+		sent *models.Message
+		err  error
+	)
+	if rec.Source.MimeType == pdfMimeType {
+		sent, err = asDocument()
+	} else {
+		// Si la foto llegó acostada o al revés, se manda enderezada para leerla cómodo en el celular.
+		// Si no se puede (formato, descarga), va la original tal cual.
+		var photo models.InputFile = &models.InputFileString{Data: rec.Source.FileID}
+		if rotated, ok := h.straightenedPhoto(ctx, b, chatID, rec.Source); ok {
+			photo = &models.InputFileUpload{Filename: "factura.jpg", Data: bytes.NewReader(rotated)}
+		}
+		sent, err = b.SendPhoto(ctx, &bot.SendPhotoParams{
+			ChatID: chatID, Photo: photo,
+			Caption: caption, ReplyMarkup: keyboard, ReplyParameters: reply,
+		})
+		if err != nil {
+			// Una imagen que llegó como archivo no se puede reenviar como foto: va como documento.
+			sent, err = asDocument()
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	return sent.ID, nil
 }
 
 // showReading vuelve a mandar la lectura de la factura, citando la foto original, con los botones
@@ -371,7 +394,12 @@ func (h *handler) adoptReread(ctx context.Context, b *bot.Bot, press buttonPress
 		h.answer(ctx, b, press.queryID, StoreErrorMessage, true)
 		return
 	}
+	h.answer(ctx, b, press.queryID, RereadAppliedAnswer, false)
+	if h.saveIfClean(ctx, press.chatID, rec.ID, edited) {
+		h.editText(ctx, b, press, FormatInvoice(edited, nil)+"\n\n"+AutoSavedNote, savedKeyboard(rec.ID, rec.Source.FileID != ""))
+		h.offerNextPending(ctx, b, press.chatID)
+		return
+	}
 	text, _ := h.invoiceMessage(ctx, press.chatID, edited)
 	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
-	h.answer(ctx, b, press.queryID, RereadAppliedAnswer, false)
 }

@@ -128,6 +128,9 @@ func (h *handler) handleCallback(ctx context.Context, b *bot.Bot, query *models.
 		h.sendSourcePhoto(ctx, b, press, rec)
 	case actionShow:
 		h.showReading(ctx, b, press, rec)
+	case actionLater:
+		h.answer(ctx, b, press.queryID, "", false)
+		h.offerPendingAfter(ctx, b, press.chatID, rec.ID)
 	case actionAdopt:
 		h.adoptReread(ctx, b, press, rec)
 	case actionField:
@@ -158,12 +161,30 @@ func (h *handler) applyShortcut(ctx context.Context, b *bot.Bot, press buttonPre
 		return
 	}
 	h.track(ctx, press.chatID, store.Event{Kind: store.EventCorrection, Detail: field})
+	h.answer(ctx, b, press.queryID, answer, false)
+	if h.saveIfClean(ctx, press.chatID, rec.ID, edited) {
+		h.editText(ctx, b, press, FormatInvoice(edited, nil)+"\n\n"+AutoSavedNote, savedKeyboard(rec.ID, rec.Source.FileID != ""))
+		h.offerNextPending(ctx, b, press.chatID)
+		return
+	}
 	text, _ := h.invoiceMessage(ctx, press.chatID, edited)
 	if note != "" {
 		text += "\n\n" + note
 	}
 	h.editText(ctx, b, press, text, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))
-	h.answer(ctx, b, press.queryID, answer, false)
+}
+
+// saveIfClean guarda sola una factura recién corregida que ya cierra, si el chat tiene el guardado
+// automático: así corregir un dato no exige además tocar Guardar. Devuelve si la guardó.
+func (h *handler) saveIfClean(ctx context.Context, chatID, id int64, inv invoice.Invoice) bool {
+	if !invoice.Clean(inv) || len(h.reviewIssues(inv)) > 0 || !h.autoSaves(ctx, chatID) {
+		return false
+	}
+	if err := h.deps.Store.Save(ctx, chatID, id); err != nil {
+		return false // duplicada o falla de la base: queda pendiente con sus botones
+	}
+	h.track(ctx, chatID, store.Event{Kind: store.EventSaved, Detail: store.EventDetailCorrected})
+	return true
 }
 
 func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress, rec store.Record) {
@@ -197,14 +218,39 @@ func (h *handler) saveInvoice(ctx context.Context, b *bot.Bot, press buttonPress
 	}
 }
 
-// offerNextPending muestra la pendiente más antigua que queda, con sus botones y citando su foto,
+// offerNextPending muestra la pendiente más antigua que queda, con su foto y sus botones,
 // para seguir revisando sin buscarla en el chat. Si no queda ninguna, no dice nada.
 func (h *handler) offerNextPending(ctx context.Context, b *bot.Bot, chatID int64) {
-	h.offerPending(ctx, b, chatID, 0)
+	h.offerPending(ctx, b, chatID, func(drafts []store.Record) store.Record { return drafts[0] })
 }
 
-// offerPending es offerNextPending empezando por la pendiente first, si sigue pendiente.
-func (h *handler) offerPending(ctx context.Context, b *bot.Bot, chatID, first int64) {
+// offerPendingID es offerNextPending empezando por la pendiente first, si sigue pendiente.
+func (h *handler) offerPendingID(ctx context.Context, b *bot.Bot, chatID, first int64) {
+	h.offerPending(ctx, b, chatID, func(drafts []store.Record) store.Record {
+		for _, d := range drafts {
+			if d.ID == first {
+				return d
+			}
+		}
+		return drafts[0]
+	})
+}
+
+// offerPendingAfter muestra la pendiente que sigue a skipped; desde la última vuelve a la primera.
+func (h *handler) offerPendingAfter(ctx context.Context, b *bot.Bot, chatID, skipped int64) {
+	h.offerPending(ctx, b, chatID, func(drafts []store.Record) store.Record {
+		for _, d := range drafts {
+			if d.ID > skipped {
+				return d
+			}
+		}
+		return drafts[0]
+	})
+}
+
+// offerPending manda la foto de la pendiente elegida y, debajo, su lectura con los botones:
+// en una tanda la foto original queda muy arriba en el chat y hay que verla para corregir.
+func (h *handler) offerPending(ctx context.Context, b *bot.Bot, chatID int64, pick func([]store.Record) store.Record) {
 	drafts, err := h.deps.Store.Drafts(ctx, chatID)
 	if err != nil {
 		h.logger.Error("no se pudieron leer los pendientes", "chat_id", chatID, "error", err)
@@ -213,16 +259,24 @@ func (h *handler) offerPending(ctx context.Context, b *bot.Bot, chatID, first in
 	if len(drafts) == 0 {
 		return
 	}
-	next := drafts[0]
-	for _, d := range drafts {
-		if d.ID == first {
-			next = d
-			break
+	next := pick(drafts)
+	replyTo := next.Source.MessageID
+	if next.Source.FileID != "" {
+		if photoID, err := h.sendSource(ctx, b, chatID, next, 0, nil); err == nil {
+			replyTo = photoID
+		} else {
+			h.logger.Warn("no se pudo mandar la foto de la pendiente", "chat_id", chatID, "error", Redact(err, h.deps.Token))
 		}
 	}
 	text, _ := h.invoiceMessage(ctx, chatID, next.Invoice)
 	header := fmt.Sprintf(NextPendingHeader, plural(len(drafts), "queda", "quedan"), len(drafts))
-	h.sendReply(ctx, b, chatID, next.Source.MessageID, header+text, reviewKeyboard(next.ID, next.Invoice, next.Source.FileID != ""))
+	keyboard := reviewKeyboard(next.ID, next.Invoice, next.Source.FileID != "")
+	if len(drafts) > 1 {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
+			button("⏭ Después", callback{action: actionLater, id: next.ID}),
+		})
+	}
+	h.sendReply(ctx, b, chatID, replyTo, header+text, keyboard)
 }
 
 // undoAutoSave vuelve a borrador una factura guardada y muestra los botones de siempre.
@@ -281,6 +335,9 @@ func (h *handler) askForValue(ctx context.Context, b *bot.Bot, press buttonPress
 	text := fmt.Sprintf("🧾 Factura #%d · %s · %s\n\n", rec.ID, historyValue(rec.Invoice.Number, maxNumberDisplayUTF16), previewIssuer(rec.Invoice.IssuerName))
 	if found && (previous.ID != rec.ID || previous.Field != field) {
 		text += "Dejé la corrección anterior sin aplicar. Ahora corregís esta factura.\n\n"
+	}
+	if read := comparableValue(rec.Invoice, field); read != "" {
+		text += "Leí: " + truncateUTF16(display(field, read), maxIssuerDisplayUTF16) + "\n"
 	}
 	h.sendReply(ctx, b, press.chatID, rec.Source.MessageID, text+askValueMessage(field), nil)
 	h.answer(ctx, b, press.queryID, "", false)

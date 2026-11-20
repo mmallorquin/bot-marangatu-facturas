@@ -77,8 +77,9 @@ func TestRereadOffersTheFieldsThatDifferAndAppliesThem(t *testing.T) {
 	h.press(callback{action: actionReread, id: 1})
 	offer := h.telegram.lastSent(t)
 
-	// Assert: segunda lectura enfocada, mensaje con las diferencias y un botón por campo.
-	if len(h.reader.received) != 2 || h.reader.received[1].Focus != reader.FocusIdentity {
+	// Assert: relectura enfocada (la tercera llamada: la lectura inicial ya tuvo su segunda mirada
+	// automática), mensaje con las diferencias y un botón por campo.
+	if len(h.reader.received) != 3 || h.reader.received[2].Focus != reader.FocusIdentity {
 		t.Fatalf("la relectura debería ir enfocada: %+v", h.reader.received)
 	}
 	for _, want := range []string{"Relectura 1 de 2", "80000519-1 → 80000519-8", "0001239 → 001-001-0001234", `"a:1:ruc_emisor:`, `"a:1:numero:`, `"a:1:todo:`} {
@@ -135,7 +136,7 @@ func TestRereadAdoptAllAndLimit(t *testing.T) {
 	if !strings.Contains(same, "leyó lo mismo") {
 		t.Errorf("segunda relectura: %q", same)
 	}
-	if !limit.alert || !strings.Contains(limit.text, "dos veces") || len(h.reader.received) != 3 {
+	if !limit.alert || !strings.Contains(limit.text, "dos veces") || len(h.reader.received) != 4 {
 		t.Errorf("la tercera relectura se rechaza sin llamar al modelo: %+v, lecturas %d", limit, len(h.reader.received))
 	}
 }

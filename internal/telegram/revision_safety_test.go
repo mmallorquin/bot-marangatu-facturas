@@ -56,6 +56,7 @@ func TestOldMutationButtonsCannotChangeCurrentDraft(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, _ := h.store.Get(context.Background(), testChatID, 1)
+			reads := len(h.reader.received) // la lectura inicial y su segunda mirada automática
 			h.pressRaw(data)
 			after, _ := h.store.Get(context.Background(), testChatID, 1)
 			if !reflect.DeepEqual(before, after) {
@@ -64,7 +65,7 @@ func TestOldMutationButtonsCannotChangeCurrentDraft(t *testing.T) {
 			if _, found, _ := h.store.Awaiting(context.Background(), testChatID); found {
 				t.Fatal("stale field started correction")
 			}
-			if len(h.reader.received) != 1 {
+			if len(h.reader.received) != reads {
 				t.Fatal("stale reread called paid reader")
 			}
 		})
