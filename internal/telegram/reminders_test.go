@@ -93,7 +93,11 @@ func TestNoReminderAfterExportingOrWhenDisabled(t *testing.T) {
 			h.sendText("/exportar 09/2026")
 			h.pressExport(t, "x:z:2026-09")
 		},
-		"desactivado": func(t *testing.T, h *harness) { h.sendText("/recordatorios no") },
+		"desactivado": func(t *testing.T, h *harness) {
+			h.sendText("/ruc 80024627-6")
+			h.sendText("/registro 955") // sin registro no recibiría aviso de todos modos
+			h.sendText("/recordatorios no")
+		},
 		"presenta anual": func(t *testing.T, h *harness) {
 			h.sendText("/ruc 80024627-6")
 			h.sendText("/registro 956") // el mensual no aplica: recibe el anual en enero

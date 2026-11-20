@@ -89,6 +89,7 @@ var valueHints = map[string]string{
 	invoice.FieldDate:      "DD/MM/AAAA",
 	invoice.FieldCondition: "contado o crédito",
 	invoice.FieldCDC:       "44 dígitos, o \"no\" si la factura no es electrónica",
+	invoice.FieldType:      "factura, ticket, nota de crédito, nota de débito o autofactura",
 }
 
 const amountHint = "solo números, ej. 150.000"

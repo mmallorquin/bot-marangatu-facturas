@@ -356,6 +356,7 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 // Devuelve la nota que explica la corrección del RUC, o "" si no hubo.
 func (h *handler) normalizeReading(ctx context.Context, chatID int64, inv invoice.Invoice) (invoice.Invoice, string) {
 	inv.Number = invoice.NormalizeNumber(inv.Number)
+	inv.Currency = invoice.NormalizeCurrency(inv.Currency)
 	if fixed, ok := invoice.ReconcileRUCWithCDC(inv); ok {
 		return fixed, RUCFromCDCNote
 	}

@@ -3,6 +3,7 @@ package invoice
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 // Nombres de campo usados en los problemas de validación (coinciden con el JSON).
 const (
 	FieldIsInvoice = "es_comprobante"
+	FieldType      = "tipo"
 	FieldIssuerRUC = "ruc_emisor"
 	FieldTimbrado  = "timbrado"
 	FieldNumber    = "numero"
@@ -59,18 +61,19 @@ func Clean(inv Invoice) bool {
 	return inv.IsInvoice && len(Validate(inv)) == 0 && len(Warnings(inv)) == 0 && len(inv.UncertainFields) == 0
 }
 
-// Warnings son datos que conviene revisar pero que no impiden guardar. El CDC no entra en el
-// archivo de Marangatu (las electrónicas se dejan afuera), así que un CDC mal leído no puede
-// romper la exportación; bloquear por eso solo dejaba al usuario sin salida.
+// Warnings son datos que conviene revisar pero que no impiden guardar.
 func Warnings(inv Invoice) []Issue {
+	var warnings []Issue
+	if inv.Type == TypeOther {
+		warnings = append(warnings, Issue{FieldType, "no reconocí el tipo de comprobante y así no entra al archivo: si es una factura o un ticket, corregí el tipo"})
+	}
 	if inv.CDC == "" {
-		return nil
+		return warnings
 	}
 	cdc, err := ParseCDC(inv.CDC)
 	if err != nil {
-		return []Issue{{FieldCDC, "el CDC debería tener 44 dígitos; corregilo o quitalo si la factura no es electrónica"}}
+		return warnings // CDC incompleto: lo informa Validate, porque decide si la factura entra al archivo
 	}
-	var warnings []Issue
 	if !cdc.CheckDigitOK() {
 		warnings = append(warnings, Issue{FieldCDC, "el dígito verificador del CDC no cierra: revisá que esté bien copiado"})
 	}
@@ -97,6 +100,7 @@ func Validate(inv Invoice) []Issue {
 	var issues []Issue
 	issues = append(issues, validateIdentity(inv)...)
 	issues = append(issues, validateAmounts(inv)...)
+	issues = append(issues, validateCDC(inv)...)
 	return issues
 }
 
@@ -126,6 +130,19 @@ func validateIdentity(inv Invoice) []Issue {
 	return issues
 }
 
+// validateCDC exige resolver un CDC que no se leyó bien. El CDC decide si la factura es electrónica
+// y por lo tanto si entra al archivo: vacío por ilegible entraría como factura en papel, e incompleto
+// dejaría afuera una factura en papel. Se resuelve escribiéndolo o indicando que no tiene.
+func validateCDC(inv Invoice) []Issue {
+	switch {
+	case inv.CDC == "" && slices.Contains(inv.UncertainFields, FieldCDC):
+		return []Issue{{FieldCDC, "no pude leer el CDC: escribilo o indicá que la factura no es electrónica"}}
+	case inv.CDC != "" && !cdcPattern.MatchString(inv.CDC):
+		return []Issue{{FieldCDC, "el CDC debería tener 44 dígitos; corregilo o quitalo si la factura no es electrónica"}}
+	}
+	return nil
+}
+
 func validateAmounts(inv Invoice) []Issue {
 	var issues []Issue
 	amounts := []struct {
@@ -141,7 +158,13 @@ func validateAmounts(inv Invoice) []Issue {
 		}
 	}
 
+	if inv.Total <= 0 {
+		issues = append(issues, Issue{FieldTotal, "falta el total del comprobante"})
+	}
 	sum := inv.Exempt + inv.Taxed5 + inv.Taxed10
+	if inv.Type == TypeTicket && sum == 0 && inv.VAT5 == 0 && inv.VAT10 == 0 {
+		return issues // un ticket puede traer solo el total; el archivo no lleva su desglose
+	}
 	if abs(sum-inv.Total) > totalToleranceGs {
 		issues = append(issues, Issue{FieldTotal,
 			fmt.Sprintf("exentas + gravadas suman %d, pero el total dice %d", sum, inv.Total)})

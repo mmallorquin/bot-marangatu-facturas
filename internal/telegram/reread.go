@@ -346,6 +346,8 @@ func comparableValue(inv invoice.Invoice, field string) string {
 		return strconv.FormatInt(inv.Total, 10)
 	case invoice.FieldCDC:
 		return strings.TrimSpace(inv.CDC)
+	case invoice.FieldType:
+		return inv.Type
 	}
 	return ""
 }
@@ -357,6 +359,8 @@ func display(field, value string) string {
 		return displayDate(value)
 	case invoice.FieldCondition:
 		return labelOr(conditionLabels, value, value)
+	case invoice.FieldType:
+		return labelOr(typeLabels, value, value)
 	case invoice.FieldExempt, invoice.FieldTaxed5, invoice.FieldTaxed10, invoice.FieldVAT5, invoice.FieldVAT10, invoice.FieldTotal:
 		if n, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return formatGs(n)

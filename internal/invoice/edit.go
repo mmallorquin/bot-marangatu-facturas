@@ -16,7 +16,7 @@ const FieldIssuerName = "razon_social_emisor"
 // EditableFields son los campos que el usuario puede corregir, en el orden en que se muestran.
 var EditableFields = []string{
 	FieldIssuerName, FieldIssuerRUC, FieldTimbrado, FieldNumber, FieldDate, FieldCondition,
-	FieldExempt, FieldTaxed5, FieldTaxed10, FieldVAT5, FieldVAT10, FieldTotal, FieldCDC,
+	FieldExempt, FieldTaxed5, FieldTaxed10, FieldVAT5, FieldVAT10, FieldTotal, FieldCDC, FieldType,
 }
 
 // ErrNotEditable indica que el campo no se puede corregir.
@@ -67,6 +67,8 @@ func Edit(inv Invoice, field, raw string) (Invoice, error) {
 		edited.Total, err = parseAmount(raw)
 	case FieldCDC:
 		edited.CDC, err = parseCDC(raw)
+	case FieldType:
+		edited.Type, err = parseType(raw)
 	default:
 		return inv, fmt.Errorf("%w: %q", ErrNotEditable, field)
 	}
@@ -129,6 +131,21 @@ func parseDate(raw string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("la fecha %q no es válida: usá DD/MM/AAAA", raw)
+}
+
+// typeWords son las formas de escribir cada tipo de comprobante al corregirlo.
+var typeWords = map[string]string{
+	"factura": TypeFactura, "ticket": TypeTicket, "autofactura": TypeAutofactura,
+	"nota de credito": TypeNotaCredito, "nota credito": TypeNotaCredito, TypeNotaCredito: TypeNotaCredito,
+	"nota de debito": TypeNotaDebito, "nota debito": TypeNotaDebito, TypeNotaDebito: TypeNotaDebito,
+}
+
+func parseType(raw string) (string, error) {
+	key := strings.NewReplacer("é", "e", "í", "i").Replace(strings.ToLower(strings.Join(strings.Fields(raw), " ")))
+	if kind, ok := typeWords[key]; ok {
+		return kind, nil
+	}
+	return "", fmt.Errorf("el tipo %q no es válido: escribí factura, ticket, nota de crédito, nota de débito o autofactura", raw)
 }
 
 func parseCondition(raw string) (string, error) {

@@ -120,6 +120,9 @@ func (h *handler) historyList(ctx context.Context, chatID int64, c historyCallba
 	if sum.HasDuplicates {
 		text.WriteString("\n⚠️ Los totales incluyen duplicados. Abrí las copias y quitá la sobrante antes de exportar.\n")
 	}
+	if note := excludedNote(sum); note != "" {
+		text.WriteString(strings.TrimPrefix(note, "\n") + "\n")
+	}
 	if c.tab == "p" {
 		text.WriteString("\n📥 Pendientes de todos los períodos. Abrí una para revisar, corregir o guardar.\n")
 	} else {

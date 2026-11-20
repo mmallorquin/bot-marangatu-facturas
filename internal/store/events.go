@@ -239,7 +239,7 @@ func (s *Store) countUsers(ctx context.Context, sc scope, from string, m *Metric
 			(SELECT COUNT(*) FROM (SELECT MIN(created_at) AS first FROM e GROUP BY chat_id) WHERE first >= ?),
 			(SELECT COUNT(*) FROM (
 				SELECT chat_id FROM e WHERE created_at >= ?
-				GROUP BY chat_id HAVING COUNT(DISTINCT substr(created_at, 1, 10)) >= 2)),
+				GROUP BY chat_id HAVING COUNT(DISTINCT `+localDay("created_at")+`) >= 2)),
 			(SELECT COUNT(DISTINCT chat_id) FROM e),
 			(SELECT COUNT(DISTINCT chat_id) FROM e WHERE created_at >= ? AND kind = ?),
 			(SELECT COUNT(DISTINCT chat_id) FROM e WHERE created_at >= ? AND kind = ?)`,
@@ -502,7 +502,7 @@ func (s *Store) perUser(ctx context.Context, sc scope, from string, m *Metrics) 
 			p.chat_id,
 			(SELECT MIN(created_at) FROM e AS a WHERE a.chat_id = p.chat_id),
 			MAX(p.created_at),
-			COUNT(DISTINCT substr(p.created_at, 1, 10)),
+			COUNT(DISTINCT `+localDay("p.created_at")+`),
 			SUM(p.kind = ?),
 			SUM(p.kind = ?),
 			SUM(p.kind = ?),
@@ -528,4 +528,10 @@ func (s *Store) perUser(ctx context.Context, sc scope, from string, m *Metrics) 
 		m.PerUser = append(m.PerUser, u)
 	}
 	return rows.Err()
+}
+
+// localDay es la expresión SQL del día de un evento en hora de Paraguay (UTC-3): contar días
+// en UTC parte en dos a quien usa el bot después de las 21:00.
+func localDay(column string) string {
+	return "substr(datetime(" + column + ", '-3 hours'), 1, 10)"
 }

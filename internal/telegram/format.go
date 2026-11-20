@@ -43,6 +43,7 @@ var fieldLabels = map[string]string{
 	invoice.FieldVAT10:      "IVA 10 %",
 	invoice.FieldTotal:      "total",
 	invoice.FieldCDC:        "CDC",
+	invoice.FieldType:       "tipo",
 }
 
 const maxIssuerDisplayUTF16 = 160

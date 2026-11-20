@@ -55,19 +55,25 @@ func TestWrongRUCCheckDigitOffersOneTapFix(t *testing.T) {
 	}
 }
 
-func TestBadCDCWarnsButDoesNotBlockAndCanBeRemovedOrTyped(t *testing.T) {
+func TestBadCDCMustBeResolvedAndCanBeRemovedOrTyped(t *testing.T) {
 	// Arrange: CDC incompleto.
 	h := newHarness(t)
 	inv := sampleInvoice()
 	inv.CDC = "0180000519800100100012341"
 	h.reader.result.Invoice = inv
 
-	// Act: se puede guardar igual; pero primero probamos los dos caminos de corrección.
+	// Act: no se guarda hasta resolverlo; probamos los dos caminos de corrección.
 	h.sendPhoto()
 	read := h.telegram.lastSent(t)
+	h.press(callback{action: actionSave, id: 1})
+	blocked, _ := h.store.Get(context.Background(), testChatID, 1)
 	h.press(callback{action: actionNoCDC, id: 1})
 	edits := h.telegram.byMethod("editMessageText")
 	cleared := edits[len(edits)-1]
+
+	if blocked.Status != store.StatusDraft {
+		t.Errorf("un CDC incompleto no se guarda sin resolver: quedó %s", blocked.Status)
+	}
 
 	// Assert
 	if !strings.Contains(read.text, "44 dígitos") || !strings.Contains(read.markup, `"q:1:`) || !strings.Contains(read.text, "factura electrónica") {
@@ -101,17 +107,20 @@ func TestBadCDCWarnsButDoesNotBlockAndCanBeRemovedOrTyped(t *testing.T) {
 	}
 }
 
-func TestBadCDCStillAllowsSaving(t *testing.T) {
+func TestBadCDCIsResolvedWithOneTap(t *testing.T) {
+	// Un CDC incompleto ya no se guarda tal cual (quedaba fuera del archivo por "electrónica"),
+	// pero con guardado automático alcanza un toque: "No tiene CDC" la deja guardada.
 	h := newHarness(t)
+	h.autoSaveOn(t)
 	inv := sampleInvoice()
 	inv.CDC = "0123"
 	h.reader.result.Invoice = inv
 
 	h.sendPhoto()
-	h.press(callback{action: actionSave, id: 1})
+	h.press(callback{action: actionNoCDC, id: 1})
 
-	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved {
-		t.Errorf("un CDC mal leído no bloquea el guardado: %s", rec.Status)
+	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Status != store.StatusSaved || rec.Invoice.CDC != "" {
+		t.Errorf("tras quitar el CDC la factura cierra y se guarda: %s, CDC %q", rec.Status, rec.Invoice.CDC)
 	}
 }
 

@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"github.com/mmallorquin/bot-marangatu-facturas/internal/invoice"
 	"strings"
 	"testing"
 
@@ -132,4 +133,47 @@ func TestReaderSlotIsFreedBeforeWaitingForTheChat(t *testing.T) {
 	})
 	chat.mu.Unlock()
 	<-done
+}
+
+func TestSummaryExplainsWhatDoesNotGoIntoTheZIP(t *testing.T) {
+	text := FormatMonthSummary("2026-09", store.Summary{Count: 2, Taxed10: 220_000, VAT10: 20_000, Total: 220_000, Excluded: 1, ExcludedTotal: 110_000})
+
+	for _, want := range []string{"1 no entra al ZIP", "110.000 Gs. Entran al ZIP: 110.000 Gs"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("falta %q en:\n%s", want, text)
+		}
+	}
+	if clean := FormatMonthSummary("2026-09", store.Summary{Count: 1, Total: 110_000}); strings.Contains(clean, "ZIP") {
+		t.Errorf("sin exclusiones no hay aclaración:\n%s", clean)
+	}
+}
+
+func TestUnknownTypeOffersToCorrectIt(t *testing.T) {
+	// "otro" queda fuera del archivo para siempre si no se puede corregir.
+	h := newHarness(t)
+	h.reader.result.Invoice.Type = invoice.TypeOther
+	h.sendPhoto()
+	card := h.telegram.lastSent(t)
+
+	h.press(callback{action: actionField, id: 1, field: invoice.FieldType})
+	h.sendText("factura")
+
+	if !strings.Contains(card.markup, "Corregir tipo") {
+		t.Errorf("la tarjeta debía ofrecer corregir el tipo: %s", card.markup)
+	}
+	if rec, _ := h.store.Get(context.Background(), testChatID, 1); rec.Invoice.Type != invoice.TypeFactura {
+		t.Errorf("tipo = %q", rec.Invoice.Type)
+	}
+}
+
+func TestCurrencyWrittenAsGsIsAccepted(t *testing.T) {
+	h := newHarness(t)
+	h.autoSaveOn(t)
+	h.reader.result.Invoice.Currency = "Gs"
+
+	h.sendPhoto()
+
+	if h.status(t, 1) != store.StatusSaved {
+		t.Errorf("\"Gs\" es guaraníes: la factura debía cerrar y guardarse")
+	}
 }

@@ -248,6 +248,7 @@ func parseResult(body []byte) (reader.Result, error) {
 	if err := json.Unmarshal(content, &inv); err != nil {
 		return reader.Result{}, newReadError(reader.ErrorResponse, nil)
 	}
+	inv.UncertainFields = knownFieldNames(inv.UncertainFields)
 	// La orientación no es parte de la factura: va aparte, y un valor raro se toma como "derecha".
 	var extra struct {
 		Rotation int `json:"orientacion"`
@@ -385,6 +386,19 @@ func newReadError(kind reader.ErrorKind, cause error) *APIError {
 }
 
 // contextCause conserva cancelación/deadline para errors.Is, sin retener URLs del error de net/http.
+// knownFieldNames deja solo nombres reales de campo, sin repetir: campos_dudosos es texto libre del
+// modelo y cada entrada se registra como evento, así que no puede llevar contenido de la factura.
+func knownFieldNames(fields []string) []string {
+	known := make([]string, 0, len(fields)) // vacío, no nil: se guarda como [] igual que llegó
+	for _, field := range fields {
+		valid := field == invoice.FieldCurrency || slices.Contains(invoice.EditableFields, field)
+		if valid && !slices.Contains(known, field) {
+			known = append(known, field)
+		}
+	}
+	return known
+}
+
 func contextCause(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):

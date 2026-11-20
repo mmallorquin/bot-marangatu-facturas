@@ -110,12 +110,11 @@ func reviewKeyboard(id int64, inv invoice.Invoice, hasSource bool) *models.Inlin
 			button("✔️ Usar RUC "+suggested, callback{action: actionUseRUC, id: id}),
 		})
 	}
-	for _, w := range invoice.Warnings(inv) {
-		if w.Field == invoice.FieldCDC {
-			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
-				button("🧾 No tiene CDC (no es electrónica)", callback{action: actionNoCDC, id: id}),
-			})
-		}
+	// Un CDC con problemas o dudas se resuelve con un toque si la factura es en papel.
+	if slices.Contains(problemFields(inv, invoice.Validate(inv)), invoice.FieldCDC) {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []models.InlineKeyboardButton{
+			button("🧾 No tiene CDC (no es electrónica)", callback{action: actionNoCDC, id: id}),
+		})
 	}
 	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, fixRows(id, inv)...)
 	return keyboard
@@ -267,7 +266,18 @@ func FormatMonthSummary(period string, sum store.Summary) string {
 		fmt.Fprintf(&b, "Gravada 10 %%: %s · IVA 10 %%: %s\n", formatGs(sum.Taxed10), formatGs(sum.VAT10))
 	}
 	fmt.Fprintf(&b, "Total: %s Gs", formatGs(sum.Total))
+	b.WriteString(excludedNote(sum))
 	return b.String()
+}
+
+// excludedNote aclara cuánto del total no entra al archivo de Marangatu, para que no parezca
+// que el resumen y la previa del ZIP se contradicen.
+func excludedNote(sum store.Summary) string {
+	if sum.Excluded == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n\nℹ️ %d %s al ZIP (electrónicas, notas de crédito u otros comprobantes): %s Gs. Entran al ZIP: %s Gs.",
+		sum.Excluded, plural(sum.Excluded, "no entra", "no entran"), formatGs(sum.ExcludedTotal), formatGs(sum.Total-sum.ExcludedTotal))
 }
 
 func capitalize(s string) string {
