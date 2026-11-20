@@ -52,11 +52,13 @@ const (
 	EventDetailAI         = "ia"
 	EventDetailFormat     = "formato"
 	EventDetailSize       = "tamano"
+	EventDetailQuota      = "cupo" // el chat pasó su cupo diario de archivos
 	EventDetailCSV        = "csv"
 	EventDetailExcel      = "excel"
 	EventDetailImage      = "imagen"
 	EventDetailPDF        = "pdf"
 	EventDetailRUCFromCDC = "ruc_segun_cdc" // el bot corrigió el DV del RUC porque el CDC lo confirmó
+	EventDetailRUCKnown   = "ruc_conocido"  // el bot usó el RUC de facturas ya guardadas del mismo emisor
 )
 
 // Un borrador sin guardar ni descartar después de este tiempo se cuenta como abandonado.

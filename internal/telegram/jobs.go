@@ -187,8 +187,8 @@ func (h *handler) alertAdmin(ctx context.Context, b *bot.Bot, err error) {
 	}
 	ops := h.deps.Operations
 	ops.mu.Lock()
-	now := h.deps.Now()
-	due := now.Sub(ops.lastAdminAlert) >= adminAlertEvery
+	previous, now := ops.lastAdminAlert, h.deps.Now()
+	due := now.Sub(previous) >= adminAlertEvery
 	if due {
 		ops.lastAdminAlert = now
 	}
@@ -199,6 +199,9 @@ func (h *handler) alertAdmin(ctx context.Context, b *bot.Bot, err error) {
 	text := "🚨 Las lecturas de facturas están fallando: " + cause + ". Nadie puede cargar facturas hasta resolverlo."
 	if err := h.send(ctx, b, h.deps.AdminChatID, text, nil); err != nil {
 		h.logger.Error("no se pudo avisar al administrador", "error", Redact(err, h.deps.Token))
+		ops.mu.Lock()
+		ops.lastAdminAlert = previous // el aviso no salió: la próxima falla lo intenta de nuevo
+		ops.mu.Unlock()
 	}
 }
 

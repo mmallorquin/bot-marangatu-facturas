@@ -172,7 +172,7 @@ func (h *handler) handleImageMessage(ctx context.Context, b *bot.Bot, msg *model
 	c.mu.Lock()
 	if h.overDailyLimit(ctx, msg.Chat.ID) {
 		c.mu.Unlock()
-		h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailSize})
+		h.track(ctx, msg.Chat.ID, store.Event{Kind: store.EventPhotoRejected, Detail: store.EventDetailQuota})
 		h.sendReply(ctx, b, msg.Chat.ID, msg.ID, fmt.Sprintf(DailyLimitMessage, h.dailyFileLimit()), nil)
 		return
 	}
@@ -331,7 +331,11 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv)
 	note := ""
 	if rucFix != "" {
-		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
+		detail := store.EventDetailRUCFromCDC
+		if rucFix == RUCFromHistoryNote {
+			detail = store.EventDetailRUCKnown
+		}
+		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: detail})
 		note = "\n\n" + rucFix
 	}
 	batch := currentBatch(ctx)

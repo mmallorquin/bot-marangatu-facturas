@@ -391,6 +391,7 @@ func newReadError(kind reader.ErrorKind, cause error) *APIError {
 func knownFieldNames(fields []string) []string {
 	known := make([]string, 0, len(fields)) // vacío, no nil: se guarda como [] igual que llegó
 	for _, field := range fields {
+		field = strings.ToLower(strings.TrimSpace(field)) // "RUC_EMISOR " sigue siendo una duda real
 		valid := field == invoice.FieldCurrency || slices.Contains(invoice.EditableFields, field)
 		if valid && !slices.Contains(known, field) {
 			known = append(known, field)

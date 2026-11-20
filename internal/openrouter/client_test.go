@@ -594,7 +594,7 @@ func TestUncertainFieldsKeepOnlyKnownFieldNames(t *testing.T) {
 	// Una foto con texto escrito puede hacer que el modelo meta cualquier cosa en campos_dudosos,
 	// y cada entrada termina en las métricas y en la terminal del administrador.
 	content := strings.Replace(invoiceJSON, `"campos_dudosos":[]`,
-		`"campos_dudosos":["ruc_emisor","RUC 80000519-8 \u001b[31m","ruc_emisor","total","moneda"]`, 1)
+		`"campos_dudosos":["ruc_emisor","RUC 80000519-8 \u001b[31m","ruc_emisor"," TOTAL ","moneda"]`, 1)
 	client := newTestClient(t, http.StatusOK, fakeChatResponse(content, "stop"), nil)
 
 	result, err := client.Read(context.Background(), reader.Image{Data: []byte("x"), MimeType: "image/jpeg"})
