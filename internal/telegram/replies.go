@@ -46,6 +46,7 @@ const (
 		"Si en realidad es electrónica, Marangatu ya la tiene y podría quedar duplicada."
 	RUCAppliedAnswer      = "✅ RUC corregido"
 	RUCFromCDCNote        = "🔎 Corregí el dígito verificador del RUC con el que figura en el CDC de la factura."
+	RUCFromHistoryNote    = "🔎 El RUC no se leía bien: usé el de las facturas que ya guardaste de este emisor."
 	NoSourceAlert         = "No tengo la foto de esta factura (se leyó con una versión anterior). Mandala de nuevo si querés releerla."
 	PhotoGoneAlert        = "Telegram ya no tiene esa foto. Mandala de nuevo."
 	PhotoGoneMessage      = "😕 No pude volver a bajar la foto: Telegram ya no la tiene. Mandala de nuevo para releerla."

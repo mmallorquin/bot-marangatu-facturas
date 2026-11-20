@@ -231,7 +231,7 @@ func TestPendingDoesNotOfferToSaveAnAlreadySavedInvoice(t *testing.T) {
 	h.saveOneInvoice(t)
 	h.sendPhoto()
 	h.sendText("/pendientes")
-	view := h.telegram.lastSent(t)
+	view := pendingSummary(t, h)
 	if strings.Contains(view.markup, pendingSaveCallback) || !strings.Contains(view.text, "duplicada") || strings.Contains(view.text, "Corregilas") {
 		t.Fatalf("saved duplicates must be explained, not counted as ready: %+v", view)
 	}

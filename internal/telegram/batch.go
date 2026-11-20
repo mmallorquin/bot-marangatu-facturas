@@ -50,7 +50,7 @@ func (h *handler) closeBatch(ctx context.Context, b *bot.Bot, chatID int64) {
 		}
 		h.send(ctx, b, chatID, batchSummary(done), nil)
 		if len(done.review) > 0 {
-			h.offerPending(ctx, b, chatID, done.review[0])
+			h.offerPendingID(ctx, b, chatID, done.review[0])
 		}
 	})
 }

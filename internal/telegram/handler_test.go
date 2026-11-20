@@ -49,6 +49,7 @@ type fakeTelegram struct {
 	requestedFileID string
 	fileBytes       []byte // qué devuelve la descarga; nil = fakeImageData
 	failGetFile     bool
+	failSendPhoto   bool // Telegram rechaza reenviar como foto lo que llegó como archivo
 }
 
 func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +74,10 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_id":"x","file_path":"photos/factura.jpg"}}`)
+		return
+	case method == "sendPhoto" && f.failSendPhoto:
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: can't use file of type Document as Photo"}`)
 		return
 	case method == "sendPhoto":
 		sent := outgoing{

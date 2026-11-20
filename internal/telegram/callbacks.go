@@ -28,7 +28,11 @@ const (
 	actionReread  = "b" // volver a leer la foto, enfocado en RUC, número y CDC
 	actionAdopt   = "a" // tomar un campo (o todos) de la relectura
 	actionShow    = "m" // mostrar de nuevo la lectura, desde la foto reenviada
+	actionLater   = "n" // dejar esta pendiente para después y mostrar otra
 )
+
+// maxFixButtons acota los botones directos de corrección: con más problemas conviene Releer o sacar otra foto.
+const maxFixButtons = 4
 
 const fieldsPerRow = 2
 
@@ -73,7 +77,7 @@ func parseCallback(data string) (callback, error) {
 	case c.action == actionAdopt && len(parts) == 3 && (parts[2] == rereadAllFields || slices.Contains(invoice.EditableFields, parts[2])):
 		c.field = parts[2]
 		return c, nil
-	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC, actionPhoto, actionReread, actionShow}, c.action):
+	case len(parts) == 2 && slices.Contains([]string{actionSave, actionDiscard, actionEdit, actionBack, actionUndo, actionUseRUC, actionNoCDC, actionPhoto, actionReread, actionShow, actionLater}, c.action):
 		return c, nil
 	default:
 		return callback{}, errInvalidCallback
@@ -113,7 +117,21 @@ func reviewKeyboard(id int64, inv invoice.Invoice, hasSource bool) *models.Inlin
 			})
 		}
 	}
+	keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, fixRows(id, inv)...)
 	return keyboard
+}
+
+// fixRows son los botones que llevan directo a corregir cada dato con problemas o dudas,
+// sin pasar por la lista de todos los campos.
+func fixRows(id int64, inv invoice.Invoice) [][]models.InlineKeyboardButton {
+	var buttons []models.InlineKeyboardButton
+	for _, field := range problemFields(inv, invoice.Validate(inv)) {
+		if len(buttons) == maxFixButtons || !slices.Contains(invoice.EditableFields, field) {
+			continue
+		}
+		buttons = append(buttons, button("✏️ Corregir "+fieldLabel(field), callback{action: actionField, id: id, field: field}))
+	}
+	return slices.Collect(slices.Chunk(buttons, fieldsPerRow))
 }
 
 // savedKeyboard acompaña a una factura guardada (sola o con el botón): deshacer y, si hay foto, verla.

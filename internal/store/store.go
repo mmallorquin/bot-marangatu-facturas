@@ -585,6 +585,37 @@ func (s *Store) IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) 
 	return exists, nil
 }
 
+// KnownIssuerRUC devuelve el RUC con el que el chat ya guardó facturas de un emisor con esa razón
+// social (sin distinguir mayúsculas ni espacios). Si la guardó con más de un RUC, no devuelve ninguno.
+func (s *Store) KnownIssuerRUC(ctx context.Context, chatID int64, issuerName string) (string, bool, error) {
+	want := strings.Join(strings.Fields(issuerName), " ")
+	if want == "" {
+		return "", false, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT json_extract(invoice_json, '$.razon_social_emisor'), json_extract(invoice_json, '$.ruc_emisor')
+		FROM invoices WHERE chat_id = ? AND status = ?`, chatID, StatusSaved)
+	if err != nil {
+		return "", false, fmt.Errorf("buscando el emisor: %w", err)
+	}
+	defer rows.Close()
+	known := ""
+	for rows.Next() {
+		var name, ruc string
+		if err := rows.Scan(&name, &ruc); err != nil {
+			return "", false, fmt.Errorf("leyendo un emisor: %w", err)
+		}
+		if !strings.EqualFold(strings.Join(strings.Fields(name), " "), want) {
+			continue
+		}
+		if known != "" && known != ruc {
+			return "", false, nil
+		}
+		known = ruc
+	}
+	return known, known != "", rows.Err()
+}
+
 // DeleteSaved saca una factura guardada del chat: deja de aparecer en /resumen y en la exportación.
 // No se elimina de la base (sigue contando en las métricas) y la misma factura se puede volver a guardar.
 func (s *Store) DeleteSaved(ctx context.Context, chatID, id int64) error {

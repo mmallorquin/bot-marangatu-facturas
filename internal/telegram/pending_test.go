@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// pendingSummary es el último resumen de /pendientes; después puede venir la siguiente para revisar.
+func pendingSummary(t *testing.T, h *harness) outgoing {
+	t.Helper()
+	sent := h.telegram.byMethod("sendMessage")
+	for i := len(sent) - 1; i >= 0; i-- {
+		if strings.HasPrefix(sent[i].text, "📥 Tenés") {
+			return sent[i]
+		}
+	}
+	t.Fatal("no hubo resumen de pendientes")
+	return outgoing{}
+}
+
 func (h *harness) sendAlbumPhoto(groupID string) {
 	update := h.nextPhoto()
 	update.Message.MediaGroupID = groupID
@@ -62,7 +75,7 @@ func TestPendingSavesOnlyTheInvoicesThatAreReady(t *testing.T) {
 	edits := h.telegram.byMethod("editMessageText")
 	result := edits[len(edits)-1].text
 	h.sendText("/pendientes")
-	after := h.telegram.lastSent(t).text
+	after := pendingSummary(t, h).text
 
 	// Assert
 	if !strings.Contains(summary.text, "3 facturas sin guardar: 1 cierra y 1 tiene algo para revisar") || !strings.Contains(summary.text, "1 duplicada") ||

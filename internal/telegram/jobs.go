@@ -106,6 +106,10 @@ func (h *handler) processJob(ctx context.Context, b *bot.Bot, job store.Job) {
 		})
 		return
 	}
+	result = h.secondLook(readCtx, job, data, result)
+	if ctx.Err() != nil {
+		return // apagado o borrado durante la segunda lectura
+	}
 	h.finishRead(ctx, func(ctx context.Context) {
 		h.showReadInvoice(ctx, b, job, result, time.Since(start).Seconds())
 	})

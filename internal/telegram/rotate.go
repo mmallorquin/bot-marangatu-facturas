@@ -12,12 +12,18 @@ import (
 // Calidad del JPEG de la foto enderezada: suficiente para leer números chicos sin pesar de más.
 const rotatedJPEGQuality = 90
 
+// maxRotatePixels acota la memoria: girar usa unos 10 bytes por píxel. Una foto más grande va sin girar.
+const maxRotatePixels = 16_000_000
+
 // rotateImage gira la imagen en sentido horario (90, 180 o 270 grados) y la devuelve como JPEG.
 // Un formato que no se puede decodificar (por ejemplo WebP) devuelve error y el que llama manda la original.
 func rotateImage(data []byte, degrees int) ([]byte, error) {
 	degrees = ((degrees % 360) + 360) % 360
 	if degrees%90 != 0 || degrees == 0 {
 		return nil, fmt.Errorf("giro inválido: %d grados", degrees)
+	}
+	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil && cfg.Width*cfg.Height > maxRotatePixels {
+		return nil, fmt.Errorf("imagen demasiado grande para girar: %d×%d", cfg.Width, cfg.Height)
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {

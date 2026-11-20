@@ -37,6 +37,7 @@ type InvoiceStore interface {
 	SavedRecords(ctx context.Context, chatID int64, period string) ([]store.SavedRecord, error)
 	DeleteSaved(ctx context.Context, chatID, id int64) error
 	IsSaved(ctx context.Context, chatID int64, inv invoice.Invoice) (bool, error)
+	KnownIssuerRUC(ctx context.Context, chatID int64, issuerName string) (string, bool, error)
 	Drafts(ctx context.Context, chatID int64) ([]store.Record, error)
 	Unsave(ctx context.Context, chatID, id int64) error
 	SetAutoSave(ctx context.Context, chatID int64, on bool) error
@@ -274,10 +275,8 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 	chatID := job.ChatID
 	source := sourceOf(job, result.Rotation)
 	photoMessageID := source.MessageID
-	inv := result.Invoice
 	// Se conserva el resultado del lector intacto para guardarlo como original.
-	inv.Number = invoice.NormalizeNumber(inv.Number)
-	inv, rucFromCDC := invoice.ReconcileRUCWithCDC(inv)
+	inv, rucFix := h.normalizeReading(ctx, chatID, result.Invoice)
 	issues := h.reviewIssues(inv)
 	h.track(ctx, chatID, readEvent(inv, issues, seconds, result.CostUSD))
 	for _, field := range problemFields(inv, issues) {
@@ -317,9 +316,9 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 	}
 	text, duplicate := h.invoiceMessage(ctx, chatID, inv)
 	note := ""
-	if rucFromCDC {
+	if rucFix != "" {
 		h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: store.EventDetailRUCFromCDC})
-		note = "\n\n" + RUCFromCDCNote
+		note = "\n\n" + rucFix
 	}
 	batch := currentBatch(ctx)
 	if !duplicate && invoice.Clean(inv) && len(issues) == 0 && h.autoSaves(ctx, chatID) {
@@ -340,6 +339,88 @@ func (h *handler) showReadInvoice(ctx context.Context, b *bot.Bot, job store.Job
 		return
 	}
 	h.sendReply(ctx, b, chatID, photoMessageID, text+note, reviewKeyboard(id, inv, source.FileID != ""))
+}
+
+// normalizeReading deja la lectura como se va a mostrar: número completado y, si el RUC no cierra,
+// corregido con una segunda fuente (el CDC de la misma factura o las facturas ya guardadas del emisor).
+// Devuelve la nota que explica la corrección del RUC, o "" si no hubo.
+func (h *handler) normalizeReading(ctx context.Context, chatID int64, inv invoice.Invoice) (invoice.Invoice, string) {
+	inv.Number = invoice.NormalizeNumber(inv.Number)
+	if fixed, ok := invoice.ReconcileRUCWithCDC(inv); ok {
+		return fixed, RUCFromCDCNote
+	}
+	if !inv.IsInvoice || invoice.ValidateRUC(inv.IssuerRUC) == nil {
+		return inv, ""
+	}
+	known, ok, err := h.deps.Store.KnownIssuerRUC(ctx, chatID, inv.IssuerName)
+	if err != nil {
+		h.logger.Warn("no se pudo buscar el RUC del emisor", "chat_id", chatID, "error", err)
+	}
+	if !ok || !similarRUC(inv.IssuerRUC, known) {
+		return inv, ""
+	}
+	fixed, err := invoice.Edit(inv, invoice.FieldIssuerRUC, known)
+	if err != nil {
+		return inv, ""
+	}
+	return fixed, RUCFromHistoryNote
+}
+
+// maxRUCMisreadDigits es cuántos caracteres puede diferir un RUC mal leído del conocido para el mismo
+// emisor: más que eso puede ser otro contribuyente con la misma razón social.
+const maxRUCMisreadDigits = 2
+
+func similarRUC(read, known string) bool {
+	read = strings.ToUpper(strings.TrimSpace(read))
+	if len(read) != len(known) {
+		return false
+	}
+	different := 0
+	for i := range read {
+		if read[i] != known[i] {
+			different++
+		}
+	}
+	return different <= maxRUCMisreadDigits
+}
+
+// identityFields son los datos que identifican al comprobante: los que más cuesta corregir a mano.
+var identityFields = []string{invoice.FieldIssuerRUC, invoice.FieldTimbrado, invoice.FieldNumber}
+
+// readingProblems cuenta lo que el usuario tendría que revisar en una lectura; identity indica si
+// alguno de esos problemas está en la identidad del comprobante.
+func (h *handler) readingProblems(ctx context.Context, chatID int64, read invoice.Invoice) (count int, identity bool) {
+	if !read.IsInvoice {
+		return 0, false
+	}
+	inv, _ := h.normalizeReading(ctx, chatID, read)
+	fields := problemFields(inv, invoice.Validate(inv))
+	for _, field := range fields {
+		identity = identity || slices.Contains(identityFields, field)
+	}
+	return len(fields), identity
+}
+
+// secondLook vuelve a leer, enfocado en la identidad, un comprobante cuyo RUC, timbrado o número no
+// cierra, antes de pedirle al usuario que lo corrija. Se queda con la lectura que tenga menos para
+// revisar y suma el costo de las dos. Es una sola llamada más, y solo para lecturas con ese problema.
+func (h *handler) secondLook(ctx context.Context, job store.Job, data []byte, first reader.Result) reader.Result {
+	problems, identity := h.readingProblems(ctx, job.ChatID, first.Invoice)
+	if !identity {
+		return first
+	}
+	second, err := h.deps.Reader.Read(ctx, reader.Image{Data: data, MimeType: job.MimeType, Focus: reader.FocusIdentity})
+	if err != nil {
+		h.logger.Warn("no se pudo hacer la segunda lectura", "chat_id", job.ChatID, "error", err)
+		return first
+	}
+	best := first
+	if again, _ := h.readingProblems(ctx, job.ChatID, second.Invoice); second.Invoice.IsInvoice && again < problems {
+		best = second
+	}
+	best.CostUSD = first.CostUSD + second.CostUSD
+	h.logger.Info("segunda lectura", "chat_id", job.ChatID, "problemas_antes", problems, "adoptada", best.Invoice.IssuerRUC != first.Invoice.IssuerRUC || best.Rotation != first.Rotation)
+	return best
 }
 
 // problemFields son los campos con problemas, avisos o dudas de una lectura, sin repetir.
@@ -407,6 +488,11 @@ func (h *handler) applyCorrection(ctx context.Context, b *bot.Bot, chatID int64,
 	h.track(ctx, chatID, store.Event{Kind: store.EventCorrection, Detail: pending.Field})
 	if err := h.deps.Store.ClearAwaiting(ctx, chatID); err != nil {
 		h.logger.Error("no se pudo cerrar la corrección", "chat_id", chatID, "error", err)
+	}
+	if h.saveIfClean(ctx, chatID, rec.ID, edited) {
+		h.sendReply(ctx, b, chatID, rec.Source.MessageID, FormatInvoice(edited, nil)+"\n\n"+AutoSavedNote, savedKeyboard(rec.ID, rec.Source.FileID != ""))
+		h.offerNextPending(ctx, b, chatID)
+		return
 	}
 	message, _ := h.invoiceMessage(ctx, chatID, edited)
 	h.sendReply(ctx, b, chatID, rec.Source.MessageID, message, reviewKeyboard(rec.ID, edited, rec.Source.FileID != ""))

@@ -50,10 +50,8 @@ func (h *handler) showPending(ctx context.Context, b *bot.Bot, chatID int64) {
 			plural(duplicates, "duplicada", "duplicadas"), plural(duplicates, "estaba guardada", "estaban guardadas"), plural(duplicates, "Descartala", "Descartalas"))
 	}
 	if ready == 0 {
-		if review > 0 {
-			text += "\n\nCorregilas desde su mensaje, más arriba."
-		}
 		h.send(ctx, b, chatID, text, nil)
+		h.offerNextPending(ctx, b, chatID) // la primera para revisar, con su foto y sus botones
 		return
 	}
 	keyboard := &models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{

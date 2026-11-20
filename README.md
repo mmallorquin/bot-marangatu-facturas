@@ -170,11 +170,22 @@ también cuando ya está guardada o en el detalle de **Mis facturas**. La foto r
 factura es y tiene **📋 Ver lectura** para volver; en una pendiente, también **🔁 Releer**.
 Si la foto se sacó acostada o al revés, **Ver foto** la manda enderezada (el modelo informa la
 orientación al leerla), para mirarla cómodo en el celular.
-Después de **Guardar** o **Descartar**, si quedan facturas pendientes, el bot te muestra la
-siguiente con sus botones, sin que tengas que buscarla en el chat.
 En **Mis facturas** cambiás entre pendientes y guardadas, recorrés todas las páginas y
 abrís el detalle. **Corregir** una guardada la devuelve a pendiente en el mismo registro,
 sin leer de nuevo el archivo; vuelve a entrar en el ZIP cuando la guardás otra vez.
+
+Para que revisar sea rápido:
+
+- Si el RUC, el timbrado o el número no cierran, el bot vuelve a leer la foto una vez, enfocado en
+  esos datos, antes de preguntarte nada. Se queda con la lectura que tenga menos para revisar.
+- Si el RUC no se lee bien y ya guardaste facturas del mismo emisor, usa ese RUC y te lo avisa.
+- Cada dato con problemas trae su propio botón (**Corregir RUC**, **Corregir total**): un toque y
+  escribís el valor. El pedido muestra qué factura es y qué se leyó.
+- Con el guardado automático activado, una factura que cierra después de tu corrección se guarda
+  sola (con **Deshacer**) y aparece la siguiente pendiente.
+- Después de **Guardar**, **Descartar** o corregir, la siguiente pendiente llega con su foto justo
+  arriba de la lectura, para no buscarla en el chat. **Después** la deja para más tarde y muestra otra.
+  `/pendientes` también muestra la primera que hay que revisar.
 
 Cada foto o PDF se anota en la base antes de descargarse, así que no se pierde si el bot se reinicia:
 los que estaban en espera siguen solos y un mismo mensaje entregado dos veces se lee una sola vez.
